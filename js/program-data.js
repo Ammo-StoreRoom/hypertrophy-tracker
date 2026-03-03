@@ -287,6 +287,56 @@ const MUSCLE_GROUPS = {
   "Triceps": ["Cable Pushdown (rope)","Cable OH Tricep Ext"],
 };
 
+const EXERCISE_DEMOS = {
+  "Barbell Bench Press": "https://exrx.net/WeightExercises/PectoralSternal/BBBenchPress",
+  "Incline DB Press": "https://exrx.net/WeightExercises/PectoralClavicular/DBInclineBenchPress",
+  "DB Bench Press": "https://exrx.net/WeightExercises/PectoralSternal/DBBenchPress",
+  "Cable Flye (low-high)": "https://exrx.net/WeightExercises/PectoralClavicular/CBInclineFly",
+  "Cable Crossover": "https://exrx.net/WeightExercises/PectoralSternal/CBCrossover",
+  "Incline BB Bench": "https://exrx.net/WeightExercises/PectoralClavicular/BBInclineBenchPress",
+  "Weighted Pull-Ups": "https://exrx.net/WeightExercises/LatissimusDorsi/WtPullup",
+  "Pull-Ups / Chin-Ups": "https://exrx.net/WeightExercises/LatissimusDorsi/BWPullup",
+  "Lat Pulldown (wide)": "https://exrx.net/WeightExercises/LatissimusDorsi/CBFrontPulldown",
+  "Lat Pulldown (V-bar)": "https://exrx.net/WeightExercises/LatissimusDorsi/CBClosePulldown",
+  "Barbell Row (overhand)": "https://exrx.net/WeightExercises/BackGeneral/BBBentOverRow",
+  "Barbell Row (underhand)": "https://exrx.net/WeightExercises/BackGeneral/BBReverseGripBentOverRow",
+  "Barbell Row (heavy)": "https://exrx.net/WeightExercises/BackGeneral/BBBentOverRow",
+  "DB Row (single arm)": "https://exrx.net/WeightExercises/BackGeneral/DBBentOverRow",
+  "Cable Row (V-bar)": "https://exrx.net/WeightExercises/BackGeneral/CBSeatedRow",
+  "Overhead Press (BB)": "https://exrx.net/WeightExercises/DeltoidAnterior/BBMilitaryPress",
+  "DB Overhead Press": "https://exrx.net/WeightExercises/DeltoidAnterior/DBShoulderPress",
+  "DB Lateral Raise": "https://exrx.net/WeightExercises/DeltoidLateral/DBLateralRaise",
+  "Arnold Press (DB)": "https://exrx.net/WeightExercises/DeltoidAnterior/DBArnoldPress",
+  "Cable Face Pull": "https://exrx.net/WeightExercises/DeltoidPosterior/CBRearDeltPull",
+  "Barbell Back Squat": "https://exrx.net/WeightExercises/Quadriceps/BBSquat",
+  "Front Squat (BB)": "https://exrx.net/WeightExercises/Quadriceps/BBFrontSquat",
+  "Goblet Squat (DB)": "https://exrx.net/WeightExercises/Quadriceps/DBGobletSquat",
+  "Bulgarian Split Squat": "https://exrx.net/WeightExercises/Quadriceps/DBSingleLegSplitSquat",
+  "Romanian Deadlift": "https://exrx.net/WeightExercises/GluteusMaximus/BBRomanianDeadlift",
+  "BB Hip Thrust": "https://exrx.net/WeightExercises/GluteusMaximus/BBHipThrust",
+  "Sumo Deadlift": "https://exrx.net/WeightExercises/GluteusMaximus/BBSumoDeadlift",
+  "Cable Pull-Through": "https://exrx.net/WeightExercises/GluteusMaximus/CBPullThrough",
+  "Barbell Curl": "https://exrx.net/WeightExercises/BicepsBrachii/BBCurl",
+  "Cable Pushdown (rope)": "https://exrx.net/WeightExercises/Triceps/CBPushdown",
+  "Cable OH Tricep Ext": "https://exrx.net/WeightExercises/Triceps/CBOverheadExtension",
+  "Weighted Dips": "https://exrx.net/WeightExercises/Triceps/WtTriDip",
+  "Standing Calf Raise": "https://exrx.net/WeightExercises/Gastrocnemius/LVStandingCalfRaise",
+  "Seated Calf Raise": "https://exrx.net/WeightExercises/Soleus/LVSeatedCalfRaise",
+};
+
+const STRENGTH_STANDARDS = {
+  "Barbell Bench Press": { beginner: 0.5, intermediate: 1.0, advanced: 1.5, elite: 2.0 },
+  "Barbell Back Squat":  { beginner: 0.75, intermediate: 1.25, advanced: 1.75, elite: 2.5 },
+  "Overhead Press (BB)": { beginner: 0.35, intermediate: 0.65, advanced: 1.0, elite: 1.4 },
+  "Romanian Deadlift":   { beginner: 0.5, intermediate: 1.0, advanced: 1.5, elite: 2.0 },
+  "Barbell Row (heavy)": { beginner: 0.4, intermediate: 0.75, advanced: 1.15, elite: 1.5 },
+  "BB Hip Thrust":       { beginner: 0.5, intermediate: 1.0, advanced: 1.5, elite: 2.5 },
+  "Weighted Pull-Ups":   { beginner: 0, intermediate: 0.25, advanced: 0.5, elite: 1.0 },
+  "Incline BB Bench":    { beginner: 0.4, intermediate: 0.85, advanced: 1.25, elite: 1.7 },
+  "Front Squat (BB)":    { beginner: 0.5, intermediate: 1.0, advanced: 1.4, elite: 1.85 },
+  "Sumo Deadlift":       { beginner: 0.75, intermediate: 1.25, advanced: 1.75, elite: 2.5 },
+};
+
 function getMuscleGroup(exName) {
   for (const [group, exercises] of Object.entries(MUSCLE_GROUPS)) {
     if (exercises.includes(exName)) return group;
@@ -294,7 +344,9 @@ function getMuscleGroup(exName) {
   return "Other";
 }
 
-function getAlternativeExercises(exName) {
+function getAlternativeExercises(exName, customExercises) {
   const group = getMuscleGroup(exName);
-  return (MUSCLE_GROUPS[group] || []).filter(n => n !== exName);
+  const base = (MUSCLE_GROUPS[group] || []).filter(n => n !== exName);
+  const custom = (customExercises || []).filter(c => c.group === group && c.name !== exName).map(c => c.name);
+  return [...base, ...custom];
 }

@@ -20,7 +20,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;min-height:100dvh;overflow-x:hidden;-webkit-tap-highlight-color:transparent;transition:background .3s,color .3s}
 body{padding-bottom:72px}
-input[type=number]{-moz-appearance:textfield}
+input[type=number]{appearance:textfield;-moz-appearance:textfield}
 input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none}
 
 /* ========== CONTAINER ========== */
@@ -111,6 +111,30 @@ input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appear
 .pin-input:focus{border-color:var(--accent)}
 .pin-input::placeholder{color:var(--muted);letter-spacing:2px;font-size:16px}
 
+/* ========== DEMO LINK ========== */
+.demo-link{color:var(--dim);font-size:12px;text-decoration:none;opacity:.6;transition:opacity .15s}
+.demo-link:hover,.demo-link:active{opacity:1;color:var(--accent)}
+
+/* ========== RADAR CHART ========== */
+.radar-chart{width:100%;max-width:260px;margin:0 auto;display:block}
+
+/* ========== STRENGTH STANDARDS ========== */
+.std-bar-bg{height:8px;background:var(--card-border);border-radius:4px;position:relative;overflow:hidden}
+.std-bar-fill{height:100%;border-radius:4px;transition:width .5s}
+.std-markers{position:absolute;inset:0}.std-markers div{position:absolute;top:0;bottom:0;width:1px;background:var(--muted)}
+
+/* ========== FATIGUE GAUGE ========== */
+.fatigue-gauge{height:10px;background:var(--card-border);border-radius:5px;overflow:hidden}
+.fatigue-fill{height:100%;border-radius:5px;transition:width .5s}
+
+/* ========== EXERCISE HISTORY ========== */
+.ex-history-list{max-height:300px;overflow-y:auto}
+.ex-history-row{padding:8px 0;border-bottom:1px solid var(--card-border)}
+.ex-history-row:last-child{border-bottom:none}
+
+/* ========== FATIGUE BANNER ========== */
+.fatigue-banner{background:linear-gradient(135deg,#d97706,#ea580c);color:#fff;margin:10px 14px;border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;font-weight:600;animation:slideDown .3s}
+
 /* ========== OFFLINE BANNER ========== */
 .offline-banner{background:#ef4444;color:#fff;text-align:center;padding:6px 16px;font-size:12px;font-weight:600;position:sticky;top:0;z-index:60}
 
@@ -193,6 +217,37 @@ input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appear
   .stats{grid-template-columns:1fr 1fr 1fr}
   .modal{max-width:380px}
 }
+
+/* ========== SET GRID 5-COL ========== */
+.set-grid-5{display:grid;grid-template-columns:32px 1fr 1fr 1fr 36px;gap:5px;align-items:center}
+
+/* ========== SET TYPE BADGES ========== */
+.set-type-btn{background:var(--input-bg);border:1px solid var(--muted);border-radius:6px;color:var(--dim);font-size:12px;font-weight:700;cursor:pointer;padding:6px 2px;text-align:center;font-family:var(--mono);transition:all .15s;width:100%}
+.set-type-btn.drop{color:#60a5fa;border-color:#60a5fa}.set-type-btn.failure{color:#ef4444;border-color:#ef4444}
+.set-type-btn:active{transform:scale(.9)}
+
+/* ========== SUPERSET / REST-PAUSE BADGES ========== */
+.rp-badge,.ss-badge{font-size:9px;font-weight:700;border-radius:3px;padding:1px 4px}
+.rp-badge{background:rgba(96,165,250,.15);color:#60a5fa}
+.ss-badge{background:rgba(250,204,21,.15);color:var(--gold)}
+.btn-sm.active-rp{color:#60a5fa;background:rgba(96,165,250,.2);border:1px solid #60a5fa}
+.btn-sm.active-ss{color:var(--gold);background:rgba(250,204,21,.2);border:1px solid var(--gold)}
+
+/* ========== PERCENTAGE CHIPS ========== */
+.pct-row{display:flex;gap:4px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.pct-chip{background:var(--input-bg);border:1px solid var(--muted);border-radius:4px;padding:3px 8px;font-size:10px;font-weight:600;color:var(--dim);cursor:pointer;font-family:var(--mono);transition:all .15s}
+.pct-chip:active{border-color:var(--accent);color:var(--accent);transform:scale(.95)}
+
+/* ========== PR TOAST ========== */
+.pr-toast-container{position:fixed;top:80px;left:14px;right:14px;z-index:70;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.pr-toast-item{background:linear-gradient(135deg,#d97706,#facc15);color:#000;border-radius:10px;padding:12px 16px;font-size:14px;font-weight:800;text-align:center;animation:prBounce .5s;box-shadow:0 4px 20px rgba(250,204,21,.4)}
+@keyframes prBounce{0%{transform:scale(0);opacity:0}50%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+
+/* ========== REST PRESETS ========== */
+.rest-presets{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
+.rest-pill{background:var(--input-bg);border:1px solid var(--muted);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--dim);cursor:pointer;font-family:var(--font);transition:all .15s}
+.rest-pill.active{border-color:var(--accent);color:var(--accent)}
+.rest-pill:active{transform:scale(.95)}
 
 /* ========== SCROLLBAR ========== */
 ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--muted);border-radius:4px}

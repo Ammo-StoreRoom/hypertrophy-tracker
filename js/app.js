@@ -11,13 +11,16 @@ let workoutExercises = [];
 let exerciseNotes = {};
 let expandedPlateCalc = {};
 let expandedWarmup = {};
+let supersets = [], restPauseExercises = {};
+let editingEntryId = null;
+let prToasts = [];
 let deferredPrompt = null, installDismissed = false;
 let isOnline = navigator.onLine;
 let undoEntry = null, undoPrevState = null, undoTimeout = null;
 let theme = 'dark';
 let pullY = 0, pullActive = false, pullDist = 0;
 
-const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, program: "standard" };
+const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, program: "standard", units: "lbs", customExercises: [], fatigueFlags: 0, longestStreak: 0 };
 
 // ========== INIT & AUTH ==========
 async function init() {
@@ -33,6 +36,7 @@ async function loadData() {
   state = await Storage.get('state', { ...DEFAULT_STATE });
   if (state.rampDayIdx === undefined) state.rampDayIdx = 0;
   if (!state.program) state.program = 'standard';
+  if (!state.units) state.units = 'lbs';
   history = await Storage.get('history', []);
   bodyWeights = await Storage.get('bodyWeights', []);
   screen = 'home'; activeDay = null; inputs = {}; workoutStart = null;
@@ -164,10 +168,27 @@ function shouldIncrease(ex, rir) {
   return ex.sets.every(s => (+s.reps||0) >= top && !isNaN(parseInt(s.rir)) && parseInt(s.rir) <= t);
 }
 
+// ========== UNITS ==========
+function unitLabel() { return state.units || 'lbs'; }
+function defaultBar() { return state.units === 'kg' ? 20 : 45; }
+function convertWeight(val, toUnit, fromUnit = unitLabel()) {
+  const n = parseFloat(val);
+  if (!Number.isFinite(n)) return 0;
+  if (toUnit === fromUnit) return n;
+  return toUnit === 'kg' ? (n * 0.45359237) : (n / 0.45359237);
+}
+function formatWeight(val, withSpace = false) {
+  const n = parseFloat(val);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const pretty = Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '');
+  return `${pretty}${withSpace ? ' ' : ''}${unitLabel()}`;
+}
+function fmtW(v) { return formatWeight(v); }
+
 // ========== FEATURES ==========
 function calcPlates(targetWeight, barWeight) {
-  barWeight = barWeight || 45;
-  const available = [45, 25, 10, 5, 2.5];
+  barWeight = barWeight || defaultBar();
+  const available = state.units === 'kg' ? [20, 10, 5, 2.5, 1.25] : [45, 25, 10, 5, 2.5];
   let perSide = (targetWeight - barWeight) / 2;
   if (perSide <= 0) return [];
   const plates = [];
@@ -176,10 +197,11 @@ function calcPlates(targetWeight, barWeight) {
 }
 
 function getWarmupSets(workingWeight) {
-  if (!workingWeight || workingWeight <= 45) return [];
-  const sets = [{ weight: 45, reps: 10, label: 'Bar only' }];
-  if (workingWeight > 95) sets.push({ weight: Math.round(workingWeight * 0.5 / 5) * 5, reps: 5, label: '~50%' });
-  if (workingWeight > 135) sets.push({ weight: Math.round(workingWeight * 0.75 / 5) * 5, reps: 3, label: '~75%' });
+  const bar = defaultBar();
+  if (!workingWeight || workingWeight <= bar) return [];
+  const sets = [{ weight: bar, reps: 10, label: 'Bar only' }];
+  if (workingWeight > bar * 2.1) sets.push({ weight: Math.round(workingWeight * 0.5 / 5) * 5, reps: 5, label: '~50%' });
+  if (workingWeight > bar * 3) sets.push({ weight: Math.round(workingWeight * 0.75 / 5) * 5, reps: 3, label: '~75%' });
   return sets;
 }
 
@@ -216,6 +238,76 @@ function getWeeklyVolume() {
   return vol;
 }
 
+// ========== ANALYTICS ==========
+function calcFatigueScore() {
+  const cutoff = Date.now() - 7 * 86400000;
+  const recent = history.filter(w => new Date(w.date).getTime() > cutoff);
+  if (!recent.length) return 0;
+  let totalSets = 0, totalIntensity = 0;
+  for (const w of recent) {
+    for (const ex of (w.exercises || [])) {
+      for (const s of (ex.sets || [])) {
+        if (!s.weight || !s.reps) continue;
+        totalSets++;
+        const rir = parseInt(s.rir) || 3;
+        totalIntensity += (10 - rir) / 10;
+      }
+    }
+  }
+  return Math.min(100, Math.round((totalSets * (totalIntensity / (totalSets || 1))) * 1.5));
+}
+
+function renderRadarChart(vol) {
+  const groups = Object.keys(MUSCLE_GROUPS);
+  const maxV = Math.max(...groups.map(g => vol[g]?.sets || 0), 1);
+  const cx = 120, cy = 120, r = 95;
+  const points = groups.map((g, i) => {
+    const angle = (Math.PI * 2 * i / groups.length) - Math.PI / 2;
+    const val = (vol[g]?.sets || 0) / maxV;
+    return { x: cx + Math.cos(angle) * r * val, y: cy + Math.sin(angle) * r * val, label: g, angle, sets: vol[g]?.sets || 0 };
+  });
+  const idealPoints = groups.map((_, i) => {
+    const angle = (Math.PI * 2 * i / groups.length) - Math.PI / 2;
+    return `${cx + Math.cos(angle) * r * 0.6},${cy + Math.sin(angle) * r * 0.6}`;
+  });
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 240 240');
+  svg.setAttribute('class', 'radar-chart');
+  svg.innerHTML = `
+    <polygon points="${idealPoints.join(' ')}" fill="none" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4,4"/>
+    <polygon points="${points.map(p => `${p.x},${p.y}`).join(' ')}" fill="rgba(233,69,96,.15)" stroke="var(--accent)" stroke-width="2"/>
+    ${groups.map((g, i) => {
+      const angle = (Math.PI * 2 * i / groups.length) - Math.PI / 2;
+      const lx = cx + Math.cos(angle) * (r + 14);
+      const ly = cy + Math.sin(angle) * (r + 14);
+      return `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="central" fill="var(--dim)" font-size="8" font-family="var(--font)">${g}</text>`;
+    }).join('')}
+    ${points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="var(--accent)"/>`).join('')}
+  `;
+  return svg;
+}
+
+// ========== FATIGUE DETECTION ==========
+function checkFatigue() {
+  if (state.mesoWeek === 4) { state.fatigueFlags = 0; return; }
+  const lastTwo = history.filter(h => h.dayLabel === activeDay).slice(0, 2);
+  if (lastTwo.length < 2) return;
+  const [curr, prev] = lastTwo;
+  let drops = 0;
+  for (const ex of (curr.exercises || [])) {
+    const prevEx = prev.exercises?.find(e => e.name === ex.name);
+    if (!prevEx) continue;
+    const currAvgReps = ex.sets.reduce((s, v) => s + (parseInt(v.reps)||0), 0) / (ex.sets.length||1);
+    const prevAvgReps = prevEx.sets.reduce((s, v) => s + (parseInt(v.reps)||0), 0) / (prevEx.sets.length||1);
+    if (currAvgReps < prevAvgReps - 1) drops++;
+  }
+  if (drops >= 2) {
+    state.fatigueFlags = (state.fatigueFlags || 0) + 1;
+  } else {
+    state.fatigueFlags = 0;
+  }
+}
+
 // ========== REST TIMER ==========
 function startRest(secs) {
   if (restInterval) clearInterval(restInterval);
@@ -244,11 +336,20 @@ function stopRest() {
   restTimer = 0; restInterval = null; restEndTime = null; render();
 }
 
+// ========== PR DETECTION ==========
+function showPRToast(name, weight) {
+  prToasts.push({ name, weight, time: Date.now() });
+  haptic([100, 50, 100, 50, 200]);
+  setTimeout(() => { prToasts = prToasts.filter(t => Date.now() - t.time < 4000); render(); }, 4000);
+  render();
+}
+
 // ========== WORKOUT FLOW ==========
 function startWorkout(day) {
   activeDay = day;
   workoutExercises = getExercises(day).map(ex => ({...ex}));
   inputs = {}; exerciseNotes = {}; expandedPlateCalc = {}; expandedWarmup = {};
+  supersets = []; restPauseExercises = {}; editingEntryId = null;
   workoutStart = Date.now(); screen = 'workout'; render();
 }
 
@@ -260,7 +361,7 @@ function copyLast(ei, name) {
 }
 
 function swapExercise(ei, newName) {
-  const alts = getAlternativeExercises(workoutExercises[ei].name);
+  const alts = getAlternativeExercises(workoutExercises[ei].name, state.customExercises);
   const alt = alts.find(a => a === newName);
   if (alt) {
     workoutExercises[ei] = { ...workoutExercises[ei], name: alt };
@@ -273,34 +374,58 @@ async function finishWorkout() {
   undoPrevState = JSON.parse(JSON.stringify(state));
   const dur = workoutStart ? Math.round((Date.now() - workoutStart) / 60000) : 0;
   const entry = {
-    id: `${Date.now()}`, date: new Date().toISOString(), phase: state.phase,
+    id: editingEntryId || `${Date.now()}`, date: editingEntryId ? history.find(h=>h.id===editingEntryId)?.date || new Date().toISOString() : new Date().toISOString(),
+    phase: state.phase,
     dayLabel: activeDay, weekLabel: state.phase === 'rampup' ? state.rampWeek : `Meso W${state.mesoWeek}`,
     rirTarget: getRIR(), duration: dur,
     exercises: workoutExercises.map((ex, ei) => ({
       name: ex.name, targetReps: ex.reps, note: exerciseNotes[ei] || '',
       sets: Array.from({ length: ex.sets }, (_, si) => {
         const d = inputs[`${ei}-${si}`]||{};
-        return { weight: d.weight||'', reps: d.reps||'', rir: d.rir||'' };
+        return { weight: d.weight||'', reps: d.reps||'', rir: d.rir||'', type: d.type||'working' };
       }),
     })),
   };
-  history.unshift(entry);
-  if (history.length > 200) history = history.slice(0, 200);
 
-  if (state.phase === 'rampup') {
-    const { rampup } = curProgram();
-    const days = Object.keys(rampup[state.rampWeek]||{});
-    const di = days.indexOf(activeDay);
-    if (di >= days.length - 1) {
-      if (state.rampWeek === 'Week 1') { state.rampWeek = 'Week 2'; state.rampDayIdx = 0; }
-      else { state.phase = 'ppl'; state.mesoWeek = 1; state.pplIdx = 0; }
-    } else { state.rampDayIdx = di + 1; }
-  } else {
-    const { ppl } = curProgram();
-    const ni = (state.pplIdx + 1) % ppl.length;
-    state.pplIdx = ni;
-    if (ni === 0) state.mesoWeek = state.mesoWeek >= 4 ? 1 : state.mesoWeek + 1;
+  // PR detection (before adding to history)
+  const newPRs = [];
+  for (const ex of entry.exercises) {
+    const oldPR = getPR(ex.name);
+    const bestW = Math.max(...ex.sets.filter(s=>s.type==='working').map(s => parseFloat(s.weight)||0), 0);
+    if (bestW > 0 && bestW > oldPR) newPRs.push({ name: ex.name, weight: bestW });
   }
+
+  if (editingEntryId) {
+    const idx = history.findIndex(h => h.id === editingEntryId);
+    if (idx >= 0) history[idx] = entry;
+    editingEntryId = null;
+  } else {
+    history.unshift(entry);
+    if (history.length > 200) history = history.slice(0, 200);
+
+    if (state.phase === 'rampup') {
+      const { rampup } = curProgram();
+      const days = Object.keys(rampup[state.rampWeek]||{});
+      const di = days.indexOf(activeDay);
+      if (di >= days.length - 1) {
+        if (state.rampWeek === 'Week 1') { state.rampWeek = 'Week 2'; state.rampDayIdx = 0; }
+        else { state.phase = 'ppl'; state.mesoWeek = 1; state.pplIdx = 0; }
+      } else { state.rampDayIdx = di + 1; }
+    } else {
+      const { ppl } = curProgram();
+      const ni = (state.pplIdx + 1) % ppl.length;
+      state.pplIdx = ni;
+      if (ni === 0) state.mesoWeek = state.mesoWeek >= 4 ? 1 : state.mesoWeek + 1;
+    }
+  }
+
+  checkFatigue();
+
+  // Track longest streak
+  let curStreak = 0;
+  const now2 = new Date();
+  for (const h2 of history) { const d = new Date(h2.date); if (Math.floor((now2-d)/86400000) <= curStreak+2) curStreak++; else break; }
+  if (curStreak > (state.longestStreak || 0)) state.longestStreak = curStreak;
 
   await Storage.set('state', state);
   await Storage.set('history', history);
@@ -312,6 +437,7 @@ async function finishWorkout() {
   undoTimeout = setTimeout(() => { undoEntry = null; undoPrevState = null; render(); }, 30000);
 
   screen = 'home'; render();
+  for (const pr of newPRs) showPRToast(pr.name, pr.weight);
 }
 
 async function undoLastWorkout() {
@@ -323,6 +449,155 @@ async function undoLastWorkout() {
   undoEntry = null; undoPrevState = null;
   if (undoTimeout) clearTimeout(undoTimeout);
   haptic(50); render();
+}
+
+// ========== EXERCISE HISTORY ==========
+function showExerciseHistory(name) {
+  const entries = [];
+  let bestEver = 0;
+  for (const w of history) {
+    const ex = w.exercises?.find(e => e.name === name);
+    if (!ex) continue;
+    const bestW = Math.max(...(ex.sets||[]).map(s => parseFloat(s.weight)||0), 0);
+    if (bestW > bestEver) bestEver = bestW;
+    const e1rm = Math.max(...(ex.sets||[]).map(s => calc1RM(s.weight, s.reps)), 0);
+    entries.push({ date: w.date, sets: ex.sets, bestW, e1rm, isPR: bestW === bestEver && bestW > 0 });
+    if (entries.length >= 20) break;
+  }
+  modal = {
+    title: name,
+    content: el('div', { cls: 'ex-history-list' },
+      entries.length === 0
+        ? el('div', { css: 'color:var(--dim);font-size:13px' }, 'No history yet')
+        : el('div', null, ...entries.map(e =>
+            el('div', { cls: 'ex-history-row' },
+              el('div', { css: 'display:flex;justify-content:space-between;align-items:center' },
+                el('span', { css: 'font-size:12px;color:var(--dim)' }, fmtDate(e.date)),
+                el('span', { css: 'display:flex;gap:6px;align-items:center' },
+                  e.e1rm > 0 ? el('span', { css: 'font-size:10px;color:var(--dim);font-family:var(--mono)' }, `e1RM: ${e.e1rm}`) : null,
+                  e.isPR ? el('span', { cls: 'pr-tag', css: 'margin-left:0' }, 'PR') : null,
+                ),
+              ),
+              el('div', { css: 'font-size:11px;color:var(--text);font-family:var(--mono);margin-top:2px' },
+                e.sets.map(s => `${s.weight||'-'}x${s.reps||'-'}`).join('  ')),
+            )
+          )),
+    ),
+  };
+  render();
+}
+
+// ========== WORKOUT EDITING ==========
+function editWorkout(entryId) {
+  const entry = history.find(h => h.id === entryId);
+  if (!entry) return;
+  editingEntryId = entryId;
+  activeDay = entry.dayLabel;
+  workoutExercises = (entry.exercises || []).map(ex => ({
+    name: ex.name, sets: ex.sets?.length || 3, reps: ex.targetReps || '8-10', rest: 90,
+  }));
+  inputs = {};
+  exerciseNotes = {};
+  for (let ei = 0; ei < entry.exercises.length; ei++) {
+    const ex = entry.exercises[ei];
+    if (ex.note) exerciseNotes[ei] = ex.note;
+    for (let si = 0; si < (ex.sets||[]).length; si++) {
+      const s = ex.sets[si];
+      inputs[`${ei}-${si}`] = { weight: s.weight||'', reps: s.reps||'', rir: s.rir||'', type: s.type||'working' };
+    }
+  }
+  expandedPlateCalc = {}; expandedWarmup = {};
+  supersets = []; restPauseExercises = {};
+  workoutStart = Date.now();
+  screen = 'workout'; render();
+}
+
+// ========== WORKOUT SHARING ==========
+function shareWorkout(entry) {
+  let text = `${entry.dayLabel} \u2014 ${fmtDate(entry.date)}\n`;
+  for (const ex of (entry.exercises || [])) {
+    text += `${ex.name}: ${ex.sets.map(s => `${s.weight||'-'}x${s.reps||'-'}`).join(', ')}\n`;
+  }
+  text += `Duration: ${entry.duration || '?'}min | RIR: ${entry.rirTarget}`;
+  if (navigator.share) {
+    navigator.share({ title: 'Workout', text }).catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(text).then(() => {
+      modal = { title: 'Copied!', message: 'Workout summary copied to clipboard.' };
+      render();
+    }).catch(() => {});
+  }
+}
+
+// ========== EXERCISE SCHEME EDITING ==========
+function editExerciseScheme(ei) {
+  const ex = workoutExercises[ei];
+  modal = {
+    title: `Edit: ${ex.name}`,
+    content: el('div', null,
+      el('div', { css: 'margin-bottom:12px' },
+        el('label', { cls: 'label', css: 'display:block;margin-bottom:4px' }, 'Sets'),
+        el('div', { css: 'display:flex;gap:6px' },
+          ...[1,2,3,4,5,6,7,8].map(n => el('button', {
+            cls: `btn-sm ${ex.sets===n?'green':''}`,
+            onclick: () => { workoutExercises[ei].sets = n; modal = null; render(); }
+          }, String(n)))
+        ),
+      ),
+      el('div', null,
+        el('label', { cls: 'label', css: 'display:block;margin-bottom:4px' }, 'Target Reps'),
+        el('input', { type: 'text', cls: 'set-input', css: 'text-align:left;font-size:14px', value: ex.reps,
+          oninput: e => { workoutExercises[ei].reps = e.target.value; }
+        }),
+      ),
+      el('button', { cls: 'btn', css: 'margin-top:12px', onclick: () => { modal = null; render(); } }, 'Done'),
+    ),
+  };
+  render();
+}
+
+// ========== CUSTOM EXERCISES ==========
+function showAddCustomExercise() {
+  let name = '', group = 'Chest', sets = 3, reps = '10-12', rest = 60;
+  const groups = Object.keys(MUSCLE_GROUPS);
+  modal = {
+    title: 'Add Custom Exercise',
+    content: el('div', null,
+      el('label', { cls: 'label', css: 'display:block;margin-bottom:4px' }, 'Exercise Name'),
+      el('input', { type: 'text', cls: 'set-input', css: 'text-align:left;font-size:14px;margin-bottom:10px',
+        placeholder: 'e.g. Smith Machine Squat',
+        oninput: e => { name = e.target.value; }
+      }),
+      el('label', { cls: 'label', css: 'display:block;margin-bottom:4px' }, 'Muscle Group'),
+      el('div', { css: 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px' },
+        ...groups.map(g => el('button', { cls: `btn-sm ${group===g?'green':''}`,
+          onclick: () => { group = g; render(); }
+        }, g))
+      ),
+      el('div', { css: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px' },
+        el('div', null,
+          el('label', { cls: 'label', css: 'display:block;margin-bottom:4px' }, 'Sets'),
+          el('input', { type: 'number', cls: 'set-input', value: '3', oninput: e => { sets = parseInt(e.target.value)||3; } }),
+        ),
+        el('div', null,
+          el('label', { cls: 'label', css: 'display:block;margin-bottom:4px' }, 'Reps'),
+          el('input', { type: 'text', cls: 'set-input', value: '10-12', oninput: e => { reps = e.target.value; } }),
+        ),
+        el('div', null,
+          el('label', { cls: 'label', css: 'display:block;margin-bottom:4px' }, 'Rest (s)'),
+          el('input', { type: 'number', cls: 'set-input', value: '60', oninput: e => { rest = parseInt(e.target.value)||60; } }),
+        ),
+      ),
+      el('button', { cls: 'btn btn-green', onclick: async () => {
+        if (!name.trim()) return;
+        if (!state.customExercises) state.customExercises = [];
+        state.customExercises.push({ name: name.trim(), group, sets, reps, rest });
+        await Storage.set('state', state);
+        modal = null; render();
+      }}, 'Add Exercise'),
+    ),
+  };
+  render();
 }
 
 // ========== BODY WEIGHT ==========
@@ -370,6 +645,50 @@ function exportCSV() {
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = `hypertrophy-log-${new Date().toISOString().split('T')[0]}.csv`;
   a.click();
+}
+
+function importCSV() {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.csv';
+  input.onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    const lines = text.split('\n').slice(1).filter(l => l.trim());
+    const grouped = {};
+    for (const line of lines) {
+      const cols = line.match(/("(?:[^"]|"")*"|[^,]*)/g)?.map(c => c.replace(/^"|"$/g, '').replace(/""/g, '"')) || [];
+      if (cols.length < 12) continue;
+      const [date, day, week, phase, rir, dur, exName, setNum, weight, reps, rirVal, note] = cols;
+      const key = `${date}-${day}`;
+      if (!grouped[key]) grouped[key] = { date, dayLabel: day, weekLabel: week, phase, rirTarget: rir, duration: parseInt(dur)||0, exercises: {} };
+      if (!grouped[key].exercises[exName]) grouped[key].exercises[exName] = { name: exName, targetReps: '', note: note || '', sets: [] };
+      grouped[key].exercises[exName].sets.push({ weight, reps, rir: rirVal, type: 'working' });
+      if (note) grouped[key].exercises[exName].note = note;
+    }
+    const newEntries = Object.values(grouped).map(g => ({
+      id: `imp-${new Date(g.date).getTime()}`,
+      date: g.date, dayLabel: g.dayLabel, weekLabel: g.weekLabel, phase: g.phase,
+      rirTarget: g.rirTarget, duration: g.duration,
+      exercises: Object.values(g.exercises),
+    }));
+    const existingIds = new Set(history.map(h => h.id));
+    const existingDates = new Set(history.map(h => `${h.date}-${h.dayLabel}`));
+    const fresh = newEntries.filter(e => !existingIds.has(e.id) && !existingDates.has(`${e.date}-${e.dayLabel}`));
+    const dupes = newEntries.length - fresh.length;
+    modal = {
+      title: 'Import CSV',
+      message: `Found ${newEntries.length} workouts. ${fresh.length} new, ${dupes} duplicates skipped.`,
+      onConfirm: async () => {
+        history = [...fresh, ...history].sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (history.length > 200) history = history.slice(0, 200);
+        await Storage.set('history', history);
+        modal = null; render();
+      },
+    };
+    render();
+  };
+  input.click();
 }
 
 async function resetAll() {
@@ -448,6 +767,19 @@ function renderHome() {
   const next = getNextDay();
   const exCount = getExercises(next)?.length || 0;
   const streak = (() => { let s = 0; const now = new Date(); for (const h2 of history) { const d = new Date(h2.date); if (Math.floor((now-d)/86400000) <= s+2) s++; else break; } return s; })();
+  const weeklyStreak = (() => {
+    const weeks = {};
+    for (const h2 of history) {
+      const d = new Date(h2.date);
+      const weekStart = new Date(d); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const key = weekStart.toISOString().split('T')[0];
+      weeks[key] = (weeks[key] || 0) + 1;
+    }
+    const sortedWeeks = Object.entries(weeks).sort((a, b) => b[0].localeCompare(a[0]));
+    let ws = 0;
+    for (const [, count] of sortedWeeks) { if (count >= 3) ws++; else break; }
+    return ws;
+  })();
   const daysSince = history[0]?.date ? Math.floor((Date.now() - new Date(history[0].date).getTime()) / 86400000) : '-';
   const todayBW = bodyWeights.find(b => b.date === new Date().toISOString().split('T')[0]);
 
@@ -474,23 +806,34 @@ function renderHome() {
       el('button', { cls: 'btn-sm', onclick: () => { installDismissed = true; render(); } }, '\u2715'),
     ) : null,
 
+    (state.fatigueFlags || 0) >= 2 ? el('div', { cls: 'fatigue-banner' },
+      el('span', null, 'Fatigue detected \u2014 consider an early deload'),
+      el('button', { cls: 'btn-sm', css: 'background:rgba(255,255,255,.2);color:#fff', onclick: async () => {
+        state.mesoWeek = 4; state.fatigueFlags = 0; await Storage.set('state', state); render();
+      }}, 'Go to Deload'),
+    ) : null,
+
     el('div', { cls: 'stats' },
       ...[
-        [history.length, 'Workouts', 'accent'], [streak, 'Streak', 'green'], [daysSince, 'Days Ago', ''],
+        [history.length, 'Workouts', 'accent'],
+        [`${streak}${weeklyStreak > 0 ? ' \uD83D\uDD25' : ''}`, `Streak${weeklyStreak > 0 ? ` (${weeklyStreak}w)` : ''}`, 'green'],
+        [daysSince, 'Days Ago', ''],
       ].map(([v, l, c]) => el('div', { cls: 'stat-card' }, el('div', { cls: `stat-val ${c}` }, String(v)), el('div', { cls: 'label' }, l))),
     ),
+    (state.longestStreak || 0) > 0 ? el('div', { css: 'text-align:center;font-size:10px;color:var(--dim);margin-top:2px;padding:0 14px' },
+      `Longest streak: ${state.longestStreak} workouts`) : null,
 
     // Body weight
     el('div', { cls: 'card' },
       el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Body Weight'),
       el('div', { cls: 'bw-row' },
-        el('input', { type: 'number', inputmode: 'decimal', cls: 'bw-input', placeholder: 'lbs',
+        el('input', { type: 'number', inputmode: 'decimal', cls: 'bw-input', placeholder: unitLabel(),
           value: todayBW?.weight || '',
           onchange: e => { const w = parseFloat(e.target.value); if (w > 0) logBodyWeight(w); }
         }),
-        el('span', { css: 'font-size:12px;color:var(--dim)' }, 'lbs today'),
+        el('span', { css: 'font-size:12px;color:var(--dim)' }, `${unitLabel()} today`),
         bodyWeights.length > 1 ? el('span', { css: 'font-size:12px;color:var(--dim);margin-left:auto' },
-          `Trend: ${bodyWeights.slice(-1)[0]?.weight || '-'} lbs`
+          `Trend: ${bodyWeights.slice(-1)[0]?.weight || '-'} ${unitLabel()}`
         ) : null,
       ),
     ),
@@ -502,7 +845,7 @@ function renderHome() {
           el('span', { cls: `badge ${state.phase==='rampup'?'badge-accent':'badge-green'}` }, state.phase==='rampup'?'RAMP-UP':'FULL PPL'),
         ),
         el('div', { css: 'font-size:13px;color:var(--dim)' }, 'RIR Target: ', el('strong', { css: 'color:var(--accent)' }, getRIR())),
-        state.phase==='ppl' ? el('div', { css: 'font-size:13px;color:var(--dim)' }, `W${state.mesoWeek} \u2022 ${PPL[state.pplIdx]?.day}`) : null,
+        state.phase==='ppl' ? el('div', { css: 'font-size:13px;color:var(--dim)' }, `W${state.mesoWeek} \u2022 ${curProgram().ppl[state.pplIdx]?.day || ''}`) : null,
       ),
     ),
 
@@ -532,7 +875,7 @@ function renderWorkout() {
     !isOnline ? el('div', { cls: 'offline-banner' }, 'Offline \u2014 using local data') : null,
     el('div', { cls: 'header workout-header' },
       el('div', { cls: 'header-row' },
-        el('div', null, el('h1', null, activeDay), el('div', { cls: 'sub' }, `Target: ${getRIR()} \u2022 ${elapsed}min`)),
+        el('div', null, el('h1', null, activeDay), el('div', { cls: 'sub' }, `${editingEntryId ? 'EDITING \u2022 ' : ''}Target: ${getRIR()} \u2022 ${elapsed}min`)),
         el('button', { cls: 'btn-sm red', onclick: () => {
           modal = { title: 'Abandon Workout?', message: 'Your logged sets will be lost.',
             onConfirm: () => { activeDay=null; stopRest(); screen='home'; modal=null; render(); } }; render();
@@ -561,27 +904,50 @@ function renderWorkout() {
         el('div', { css: 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px' },
           el('div', { css: 'flex:1' },
             el('div', { css: 'display:flex;align-items:center;gap:6px;flex-wrap:wrap' },
-              el('span', { css: 'font-size:14px;font-weight:700;color:var(--white);cursor:pointer;text-decoration:underline dotted var(--muted)',
-                onclick: () => {
-                  const alts = getAlternativeExercises(ex.name);
-                  if (!alts.length) return;
-                  modal = { title: 'Swap Exercise',
-                    content: el('div', { cls: 'swap-list' },
-                      ...alts.map(a => el('button', { cls: 'swap-item', onclick: () => swapExercise(ei, a) }, a))
+              (() => {
+                let pressTimer = null;
+                return el('span', { css: 'font-size:14px;font-weight:700;color:var(--white);cursor:pointer;text-decoration:underline dotted var(--muted);-webkit-user-select:none;user-select:none',
+                  onmousedown: () => { pressTimer = setTimeout(() => editExerciseScheme(ei), 500); },
+                  onmouseup: () => clearTimeout(pressTimer),
+                  ontouchstart: () => { pressTimer = setTimeout(() => { editExerciseScheme(ei); }, 500); },
+                  ontouchend: () => clearTimeout(pressTimer),
+                  onclick: () => {
+                    const alts = getAlternativeExercises(ex.name, state.customExercises);
+                    modal = { title: ex.name,
+                    content: el('div', null,
+                      alts.length ? el('div', null,
+                        el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Swap to:'),
+                        el('div', { cls: 'swap-list' },
+                          ...alts.map(a => el('button', { cls: 'swap-item', onclick: () => swapExercise(ei, a) }, a))
+                        ),
+                      ) : null,
+                      el('button', { cls: 'btn-ghost', css: 'margin-top:8px', onclick: () => { modal=null; showExerciseHistory(ex.name); } }, 'View History'),
                     ),
                   };
                   render();
                 }
-              }, ex.name),
-              prog ? el('span', { cls: 'prog-tag' }, `\u2191 Try ${prog}lbs`) : null,
+              }, ex.name);
+              })(),
+              EXERCISE_DEMOS[ex.name] ? el('a', { href: EXERCISE_DEMOS[ex.name], target: '_blank', rel: 'noopener',
+                cls: 'demo-link', onclick: e => e.stopPropagation() }, '\u24D8') : null,
+              prog ? el('span', { cls: 'prog-tag' }, `\u2191 Try ${fmtW(prog)}`) : null,
             ),
-            el('div', { css: 'font-size:11px;color:var(--dim);margin-top:1px' }, `${ex.sets}x${ex.reps} \u2022 Rest ${ex.rest}s`),
-            bestSet > 0 ? el('div', { cls: 'e1rm' }, `Est. 1RM: ${bestSet}lbs`) : null,
+            el('div', { css: 'display:flex;gap:6px;align-items:center;font-size:11px;color:var(--dim);margin-top:1px' },
+              `${ex.sets}x${ex.reps} \u2022 Rest ${ex.rest}s`,
+              restPauseExercises[ei] ? el('span', { cls: 'rp-badge' }, 'RP') : null,
+              supersets.some(s => s.includes(ei)) ? el('span', { cls: 'ss-badge' }, 'SS') : null,
+            ),
+            bestSet > 0 ? el('div', { cls: 'e1rm' }, `Est. 1RM: ${fmtW(bestSet)}`) : null,
           ),
-          el('div', { css: 'display:flex;gap:4px;flex-shrink:0' },
+          el('div', { css: 'display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end' },
             last ? el('button', { cls: 'btn-sm blue', onclick: () => copyLast(ei, ex.name) }, 'Copy') : null,
-            el('button', { cls: 'btn-sm', onclick: () => startRest(ex.rest) }, 'Rest'),
             el('button', { cls: 'btn-sm green', onclick: () => { expandedPlateCalc[ei] = !expandedPlateCalc[ei]; render(); } }, 'Plates'),
+            el('button', { cls: `btn-sm ${restPauseExercises[ei]?'active-rp':''}`, onclick: () => { restPauseExercises[ei] = !restPauseExercises[ei]; render(); } }, 'RP'),
+            ei < exercises.length - 1 ? el('button', { cls: `btn-sm ${supersets.some(s=>s[0]===ei)?'active-ss':''}`, onclick: () => {
+              const idx = supersets.findIndex(s=>s[0]===ei);
+              if (idx>=0) supersets.splice(idx,1); else supersets.push([ei, ei+1]);
+              render();
+            }}, '\u26D3') : null,
           ),
         ),
 
@@ -591,7 +957,7 @@ function renderWorkout() {
           const plates = w ? calcPlates(parseFloat(w)) : [];
           return el('div', { cls: 'plate-calc' },
             el('div', { css: 'font-size:11px;color:var(--dim);margin-bottom:4px' },
-              w ? `${w}lbs \u2192 Per side:` : 'Enter weight to see plates'),
+              w ? `${w}${unitLabel()} \u2192 Per side:` : 'Enter weight to see plates'),
             plates.length ? el('div', { cls: 'plate-calc-row' },
               ...plates.map(p => el('span', { cls: `plate-chip x${String(p).replace('.', '-')}` }, `${p}`))
             ) : null,
@@ -605,24 +971,43 @@ function renderWorkout() {
         ),
         warmups.length ? el('div', { cls: 'warmup-section' },
           ...warmups.map(w => el('div', { cls: 'warmup-row' },
-            el('span', null, w.label), el('span', null, `${w.weight}lbs \u00D7 ${w.reps}`)
+            el('span', null, w.label), el('span', null, `${fmtW(w.weight)} \u00D7 ${w.reps}`)
           )),
         ) : null,
 
         // Last performance
         last ? el('div', { cls: 'last-perf' },
-          'Last: ' + last.sets.map(s => `${s.weight||'?'}x${s.reps||'?'}`).join('  '),
-          pr > 0 ? el('span', { cls: 'pr-tag' }, `PR: ${pr}lbs`) : null,
+          'Last: ' + last.sets.map(s => `${s.weight ? fmtW(s.weight) : '?'}x${s.reps||'?'}`).join('  '),
+              pr > 0 ? el('span', { cls: 'pr-tag' }, `PR: ${fmtW(pr)}`) : null,
         ) : null,
 
+        // Percentage-based suggestions
+        (() => {
+          const e1rm = getPR(ex.name) || 0;
+          if (e1rm <= 0) return null;
+          return el('div', { cls: 'pct-row' },
+            el('span', { css: 'font-size:10px;color:var(--dim);margin-right:4px' }, '% 1RM:'),
+            ...[70, 75, 80, 85].map(pct => {
+              const w = Math.round(e1rm * pct / 100 / 2.5) * 2.5;
+              return el('button', { cls: 'pct-chip', onclick: () => {
+                for (let si = 0; si < ex.sets; si++) { if (!inputs[`${ei}-${si}`]) inputs[`${ei}-${si}`] = {}; inputs[`${ei}-${si}`].weight = String(w); }
+                render();
+              }}, `${pct}% ${w}`);
+            }),
+          );
+        })(),
+
         // Set inputs
-        el('div', { cls: 'set-grid' },
+        el('div', { cls: 'set-grid-5' },
           el('div', { cls: 'label', css: 'font-size:9px' }, '#'),
-          el('div', { cls: 'label', css: 'font-size:9px;text-align:center' }, 'LBS'),
+          el('div', { cls: 'label', css: 'font-size:9px;text-align:center' }, unitLabel().toUpperCase()),
           el('div', { cls: 'label', css: 'font-size:9px;text-align:center' }, 'REPS'),
           el('div', { cls: 'label', css: 'font-size:9px;text-align:center' }, 'RIR'),
+          el('div', { cls: 'label', css: 'font-size:9px;text-align:center' }, 'TYPE'),
           ...Array.from({ length: ex.sets }, (_, si) => {
             const k = `${ei}-${si}`, v = inputs[k]||{}, done = v.weight && v.reps;
+            const setType = v.type || 'working';
+            const typeLabel = setType === 'drop' ? '\u2193' : setType === 'failure' ? 'F' : '\u2022';
             return [
               el('div', { cls: `set-num ${done?'done':''}` }, done?'\u2713':String(si+1)),
               el('input', { type:'number', inputmode:'decimal', id:`in-${ei}-${si}-w`, cls:`set-input ${done?'done':''}`, placeholder:'-', value:v.weight||'',
@@ -630,13 +1015,30 @@ function renderWorkout() {
                 onkeydown: e => { if(e.key==='Enter'){const n=document.getElementById(`in-${ei}-${si}-r`);if(n){n.focus();n.select();}}} }),
               el('input', { type:'number', inputmode:'numeric', id:`in-${ei}-${si}-r`, cls:`set-input ${done?'done':''}`, placeholder:'-', value:v.reps||'',
                 oninput: e => { if(!inputs[k]) inputs[k]={}; inputs[k].reps=e.target.value;
-                  if(v.weight&&e.target.value){haptic(30);} },
+                  if(v.weight&&e.target.value){haptic(30);
+                    if(restPauseExercises[ei]) startRest(15);
+                  } },
                 onkeydown: e => { if(e.key==='Enter'){const n=document.getElementById(`in-${ei}-${si}-i`);if(n){n.focus();n.select();}}} }),
               el('input', { type:'number', inputmode:'numeric', id:`in-${ei}-${si}-i`, cls:`set-input ${done?'done':''}`, placeholder:'-', value:v.rir||'',
                 oninput: e => { if(!inputs[k]) inputs[k]={}; inputs[k].rir=e.target.value; },
                 onkeydown: e => { if(e.key==='Enter'){const n=document.getElementById(`in-${ei}-${si+1}-w`)||document.getElementById(`in-${ei+1}-0-w`);if(n){n.focus();n.select();}}} }),
+              el('button', { cls: `set-type-btn ${setType}`, onclick: () => {
+                if(!inputs[k]) inputs[k]={};
+                const cycle = { working:'drop', drop:'failure', failure:'working' };
+                inputs[k].type = cycle[setType];
+                render();
+              }}, typeLabel),
             ];
           }).flat(),
+        ),
+
+        // Rest presets
+        el('div', { cls: 'rest-presets' },
+          ...[60, 90, 120, 180].map(s =>
+            el('button', { cls: `rest-pill ${s === ex.rest ? 'active' : ''}`, onclick: () => startRest(s) }, `${s}s`)),
+          ex.rest && ![60,90,120,180].includes(ex.rest)
+            ? el('button', { cls: 'rest-pill active', onclick: () => startRest(ex.rest) }, `${ex.rest}s`)
+            : null,
         ),
 
         // Notes
@@ -703,16 +1105,26 @@ function renderHistory() {
                 el('span', { css: 'color:var(--dim);font-size:16px' }, exp?'\u25B2':'\u25BC'),
               ),
             ),
-            exp ? el('div', { cls: 'hist-exercises' }, ...(entry.exercises||[]).map(ex =>
-              el('div', { cls: 'hist-ex' },
-                el('div', null,
-                  el('span', { cls: 'hist-ex-name' }, ex.name),
-                  shouldIncrease(ex, entry.rirTarget) ? el('span', { cls: 'increase-tag' }, '\u2191 INCREASE') : null,
-                ),
-                el('div', { cls: 'hist-ex-sets' }, ex.sets?.map(s => `${s.weight||'-'}x${s.reps||'-'} @${s.rir||'?'}`).join('  \u2022  ')),
-                ex.note ? el('div', { css: 'font-size:11px;color:var(--dim);font-style:italic;margin-top:2px' }, ex.note) : null,
-              )
-            )) : null,
+            exp ? el('div', { cls: 'hist-exercises' },
+              ...(entry.exercises||[]).map(ex =>
+                el('div', { cls: 'hist-ex' },
+                  el('div', null,
+                    el('span', { cls: 'hist-ex-name', css: 'cursor:pointer;text-decoration:underline dotted var(--muted)',
+                      onclick: e2 => { e2.stopPropagation(); showExerciseHistory(ex.name); } }, ex.name),
+                    shouldIncrease(ex, entry.rirTarget) ? el('span', { cls: 'increase-tag' }, '\u2191 INCREASE') : null,
+                  ),
+                  el('div', { cls: 'hist-ex-sets' }, ex.sets?.map(s => {
+                    const tt = s.type === 'drop' ? '\u2193' : s.type === 'failure' ? 'F' : '';
+                    return `${s.weight ? fmtW(s.weight) : '-'}x${s.reps||'-'} @${s.rir||'?'}${tt}`;
+                  }).join('  \u2022  ')),
+                  ex.note ? el('div', { css: 'font-size:11px;color:var(--dim);font-style:italic;margin-top:2px' }, ex.note) : null,
+                )
+              ),
+              el('div', { css: 'display:flex;gap:8px;margin-top:8px;border-top:1px solid var(--muted);padding-top:8px' },
+                el('button', { cls: 'btn-sm blue', onclick: e2 => { e2.stopPropagation(); editWorkout(entry.id); } }, 'Edit'),
+                el('button', { cls: 'btn-sm', onclick: e2 => { e2.stopPropagation(); shareWorkout(entry); } }, 'Share'),
+              ),
+            ) : null,
           );
         })),
     renderNav(),
@@ -744,7 +1156,7 @@ function renderProgress() {
       return el('div', { cls: 'card' },
         el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px' },
           el('span', { css: 'font-size:14px;font-weight:700;color:var(--white)' }, name),
-          el('span', { css: 'font-size:12px;color:var(--gold);font-weight:700;font-family:var(--mono)' }, `PR: ${pr}lbs`)),
+          el('span', { css: 'font-size:12px;color:var(--gold);font-weight:700;font-family:var(--mono)' }, `PR: ${fmtW(pr)}`)),
         el('div', { cls: 'bar-chart' }, ...data.map(d => {
           const isPR = d.weight===pr && d.weight>0;
           return el('div', { cls: 'bar-col' },
@@ -777,12 +1189,12 @@ function renderProgress() {
       el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px' },
         el('span', { cls: 'label' }, 'Body Weight'),
         el('span', { css: 'font-size:12px;color:var(--accent);font-weight:700;font-family:var(--mono)' },
-          `${recentBW[recentBW.length-1].weight}lbs`),
+          fmtW(recentBW[recentBW.length-1].weight)),
       ),
       el('div', { cls: 'bw-chart' },
         ...recentBW.map(b => el('div', { cls: 'bw-bar',
           css: `height:${Math.max(((b.weight - bwMin) / bwRange) * 50 + 6, 6)}px`,
-          title: `${b.date}: ${b.weight}lbs` })),
+          title: `${b.date}: ${fmtW(b.weight)}` })),
       ),
     ) : null,
 
@@ -799,6 +1211,66 @@ function renderProgress() {
           title: `${fmtDate(h.date)}: ${h.duration||0}min` })),
       ),
     ) : null,
+
+    // Muscle balance radar
+    Object.keys(vol).length > 2 ? el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Muscle Balance (weekly sets)'),
+      renderRadarChart(vol),
+    ) : null,
+
+    // Strength standards
+    (() => {
+      const bw = bodyWeights.length ? bodyWeights[bodyWeights.length - 1].weight : 0;
+      if (!bw) return null;
+      const compounds = curProgram().compounds.filter(c => STRENGTH_STANDARDS[c]);
+      if (!compounds.length) return null;
+      const rows = compounds.map(name => {
+        const pr = getPR(name);
+        const std = STRENGTH_STANDARDS[name];
+        if (!std) return null;
+        const ratio = pr / bw;
+        let level = 'Beginner', color = 'var(--dim)', pct = 0;
+        if (ratio >= std.elite) { level = 'Elite'; color = 'var(--gold)'; pct = 100; }
+        else if (ratio >= std.advanced) { level = 'Advanced'; color = 'var(--green)'; pct = 75 + 25 * (ratio - std.advanced) / (std.elite - std.advanced); }
+        else if (ratio >= std.intermediate) { level = 'Intermediate'; color = '#60a5fa'; pct = 50 + 25 * (ratio - std.intermediate) / (std.advanced - std.intermediate); }
+        else if (ratio >= std.beginner) { level = 'Beginner'; color = 'var(--dim)'; pct = 25 + 25 * (ratio - std.beginner) / (std.intermediate - std.beginner); }
+        else { pct = 25 * ratio / (std.beginner || 1); }
+        return { name, pr, ratio: ratio.toFixed(2), level, color, pct: Math.min(100, Math.max(2, pct)) };
+      }).filter(Boolean);
+      if (!rows.length) return null;
+      return el('div', { cls: 'card' },
+        el('div', { cls: 'label', css: 'margin-bottom:10px' }, `Strength Standards (${fmtW(bw)} BW)`),
+        ...rows.map(r => el('div', { css: 'margin-bottom:8px' },
+          el('div', { css: 'display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px' },
+            el('span', { css: 'color:var(--white);font-weight:600' }, r.name),
+            el('span', { css: `color:${r.color};font-weight:700;font-family:var(--mono)` }, `${r.level} (${r.ratio}x)`),
+          ),
+          el('div', { cls: 'std-bar-bg' },
+            el('div', { cls: 'std-bar-fill', css: `width:${r.pct}%;background:${r.color}` }),
+            el('div', { cls: 'std-markers' },
+              ...[25, 50, 75].map(p => el('div', { css: `left:${p}%` })),
+            ),
+          ),
+        )),
+      );
+    })(),
+
+    // Fatigue score
+    (() => {
+      const score = calcFatigueScore();
+      const color = score <= 40 ? 'var(--green)' : score <= 70 ? 'var(--gold)' : 'var(--accent)';
+      const label = score <= 40 ? 'Fresh' : score <= 70 ? 'Moderate' : 'High Fatigue';
+      return el('div', { cls: 'card' },
+        el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px' },
+          el('span', { cls: 'label' }, 'Weekly Fatigue'),
+          el('span', { css: `font-size:12px;font-weight:700;color:${color}` }, label),
+        ),
+        el('div', { cls: 'fatigue-gauge' },
+          el('div', { cls: 'fatigue-fill', css: `width:${score}%;background:${color}` }),
+        ),
+        el('div', { css: `text-align:center;font-size:24px;font-weight:900;font-family:var(--mono);margin-top:6px;color:${color}` }, String(score)),
+      );
+    })(),
 
     renderNav(),
   );
@@ -817,6 +1289,17 @@ function renderSettings() {
         ...['dark','light','auto'].map(t =>
           el('button', { cls: theme === t ? 'active' : '', onclick: () => { setTheme(t); render(); } },
             t[0].toUpperCase() + t.slice(1))
+        ),
+      ),
+    ),
+
+    // Units
+    el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Weight Units'),
+      el('div', { cls: 'theme-toggle' },
+        ...['lbs','kg'].map(u =>
+          el('button', { cls: (state.units||'lbs') === u ? 'active' : '', onclick: async () => { state.units=u; await Storage.set('state',state); render(); } },
+            u.toUpperCase())
         ),
       ),
     ),
@@ -862,6 +1345,13 @@ function renderSettings() {
         ...['Week 1','Week 2'].map(w => el('button', { cls: `btn-ghost ${state.rampWeek===w?'':'muted'}`,
           onclick: async () => { state.rampWeek=w; state.rampDayIdx=0; await Storage.set('state',state); render(); } }, w))),
     ) : null,
+    state.phase==='rampup' ? el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Next Day'),
+      el('div', { css: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px' },
+        ...Object.keys(curProgram().rampup[state.rampWeek]||{}).map((d,i) => el('button', { cls: `btn-ghost ${state.rampDayIdx===i?'':'muted'}`,
+          css: `font-size:10px;padding:8px 4px${state.rampDayIdx===i?';border-color:var(--accent);color:var(--accent)':''}`,
+          onclick: async () => { state.rampDayIdx=i; await Storage.set('state',state); render(); } }, d.replace(/^\w+: /,'')))),
+    ) : null,
     state.phase==='ppl' ? el('div', { cls: 'card' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Mesocycle Week'),
       el('div', { css: 'display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px' },
@@ -877,9 +1367,31 @@ function renderSettings() {
           onclick: async () => { state.pplIdx=i; await Storage.set('state',state); render(); } }, p.label))),
     ) : null,
 
+    // Custom exercises
     el('div', { cls: 'card' },
-      el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Export Data'),
-      el('button', { cls: 'btn-ghost', onclick: exportCSV }, 'Download CSV Backup'),
+      el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px' },
+        el('div', { cls: 'label' }, 'Custom Exercises'),
+        el('button', { cls: 'btn-sm green', onclick: showAddCustomExercise }, '+ Add'),
+      ),
+      (state.customExercises||[]).length ? el('div', null,
+        ...(state.customExercises||[]).map((ce, ci) => el('div', { css: 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--card-border)' },
+          el('div', null,
+            el('div', { css: 'font-size:13px;color:var(--white);font-weight:600' }, ce.name),
+            el('div', { css: 'font-size:10px;color:var(--dim)' }, `${ce.group} \u2022 ${ce.sets}x${ce.reps}`),
+          ),
+          el('button', { cls: 'btn-sm red', onclick: async () => {
+            state.customExercises.splice(ci, 1); await Storage.set('state', state); render();
+          }}, '\u2715'),
+        )),
+      ) : el('div', { css: 'font-size:12px;color:var(--dim)' }, 'No custom exercises'),
+    ),
+
+    el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Data'),
+      el('div', { css: 'display:flex;gap:8px' },
+        el('button', { cls: 'btn-ghost', css: 'flex:1', onclick: exportCSV }, 'Export CSV'),
+        el('button', { cls: 'btn-ghost', css: 'flex:1', onclick: importCSV }, 'Import CSV'),
+      ),
     ),
     el('div', { cls: 'card' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Account'),
@@ -915,6 +1427,11 @@ function render() {
     app.appendChild(el('div', { cls: 'undo-toast' },
       el('span', null, 'Workout saved!'),
       el('button', { cls: 'btn-sm green', css: 'font-size:12px;padding:6px 14px', onclick: undoLastWorkout }, 'UNDO'),
+    ));
+  }
+  if (prToasts.length > 0) {
+    app.appendChild(el('div', { cls: 'pr-toast-container' },
+      ...prToasts.map(t => el('div', { cls: 'pr-toast-item' }, `\uD83C\uDFC6 New PR! ${t.name}: ${fmtW(t.weight)}`))
     ));
   }
 }
