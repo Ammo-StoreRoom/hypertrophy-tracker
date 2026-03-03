@@ -57,6 +57,16 @@ const Storage = (() => {
     localStorage.setItem('ht-data-migrated', '1');
   }
 
+  // Track all known users in localStorage so admin always has them
+  function saveKnownUser() {
+    if (!userPin) return;
+    try {
+      const known = JSON.parse(localStorage.getItem('ht-known-users') || '{}');
+      known[hashPin(userPin)] = userPin;
+      localStorage.setItem('ht-known-users', JSON.stringify(known));
+    } catch {}
+  }
+
   // Public API
   return {
     isLoggedIn() { return !!userPin; },
@@ -66,6 +76,7 @@ const Storage = (() => {
       if (!/^\d{8}$/.test(pin)) return false;
       userPin = pin;
       try { localStorage.setItem('ht-pin', JSON.stringify(pin)); } catch {}
+      saveKnownUser();
       migrateOldData();
       initFirebase();
       return true;
@@ -75,7 +86,7 @@ const Storage = (() => {
       try {
         const v = localStorage.getItem('ht-pin');
         const saved = v ? JSON.parse(v) : null;
-        if (saved) { userPin = saved; migrateOldData(); initFirebase(); return true; }
+        if (saved) { userPin = saved; saveKnownUser(); migrateOldData(); initFirebase(); return true; }
       } catch {}
       return false;
     },
@@ -153,49 +164,82 @@ const Storage = (() => {
 
     getHash() { return userPin ? hashPin(userPin) : null; },
 
-    // Register current user in the shared registry (called on each login)
+    // Register current user (writes to own Firebase path + shared registry + localStorage)
     async registerSelf(info) {
-      if (!db || !userPin) return;
-      try {
-        await db.ref(`registry/${hashPin(userPin)}`).update({ pin: userPin, ...info });
-      } catch(e) { console.warn('Registry update failed:', e); }
+      if (!userPin) return;
+      saveKnownUser();
+      const meta = { pin: userPin, ...info, lastActive: new Date().toISOString().split('T')[0] };
+      if (db) {
+        const h = hashPin(userPin);
+        try { await db.ref(`users/${h}/_meta`).update(meta); } catch {}
+        try { await db.ref(`registry/${h}`).update(meta); } catch {}
+      }
     },
 
-    // Admin: read full registry
+    // Admin: build user list from all available sources
     async adminGetRegistry() {
-      if (!db) return {};
+      const reg = {};
+      // 1. Local known users (always works)
       try {
-        const snap = await db.ref('registry').once('value');
-        return snap.val() || {};
-      } catch(e) { console.warn('Registry read failed:', e); return {}; }
+        const known = JSON.parse(localStorage.getItem('ht-known-users') || '{}');
+        for (const [hash, pin] of Object.entries(known)) {
+          reg[hash] = { pin };
+        }
+      } catch {}
+      // 2. Firebase registry (may fail if rules expired)
+      if (db) {
+        try {
+          const snap = await db.ref('registry').once('value');
+          const fbReg = snap.val() || {};
+          for (const [hash, data] of Object.entries(fbReg)) {
+            reg[hash] = { ...(reg[hash] || {}), ...data };
+          }
+        } catch(e) { console.warn('Firebase registry read failed:', e); }
+      }
+      return reg;
     },
 
-    // Admin: read another user's data
+    // Admin: read another user's data (Firebase first, localStorage fallback)
     async adminGetUserData(userHash, key) {
-      if (!db) return null;
+      if (db) {
+        try {
+          const snap = await db.ref(`users/${userHash}/${key}`).once('value');
+          const val = snap.val();
+          if (val !== null) return val;
+        } catch {}
+      }
       try {
-        const snap = await db.ref(`users/${userHash}/${key}`).once('value');
-        return snap.val();
-      } catch(e) { console.warn('Admin read failed:', e); return null; }
+        const ls = localStorage.getItem(`ht-${userHash}-${key}`);
+        return ls ? JSON.parse(ls) : null;
+      } catch { return null; }
     },
 
     // Admin: write another user's data
     async adminSetUserData(userHash, key, val) {
-      if (!db) return false;
-      try {
-        await db.ref(`users/${userHash}/${key}`).set(val);
-        return true;
-      } catch(e) { console.warn('Admin write failed:', e); return false; }
+      try { localStorage.setItem(`ht-${userHash}-${key}`, JSON.stringify(val)); } catch {}
+      if (db) {
+        try { await db.ref(`users/${userHash}/${key}`).set(val); return true; }
+        catch(e) { console.warn('Admin write failed:', e); }
+      }
+      return false;
     },
 
     // Admin: delete all data for a user
     async adminResetUser(userHash) {
-      if (!db) return false;
+      const DATA_KEYS = ['state', 'history', 'bodyWeights', '_meta'];
+      for (const k of DATA_KEYS) {
+        try { localStorage.removeItem(`ht-${userHash}-${k}`); } catch {}
+      }
       try {
-        await db.ref(`users/${userHash}`).remove();
-        await db.ref(`registry/${userHash}`).remove();
-        return true;
-      } catch(e) { console.warn('Admin reset failed:', e); return false; }
+        const known = JSON.parse(localStorage.getItem('ht-known-users') || '{}');
+        delete known[userHash];
+        localStorage.setItem('ht-known-users', JSON.stringify(known));
+      } catch {}
+      if (db) {
+        try { await db.ref(`users/${userHash}`).remove(); } catch {}
+        try { await db.ref(`registry/${userHash}`).remove(); } catch {}
+      }
+      return true;
     },
   };
 })();

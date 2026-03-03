@@ -47,7 +47,7 @@ async function loadData() {
   bodyWeights = await Storage.get('bodyWeights', []);
   screen = 'home'; activeDay = null; inputs = {}; workoutStart = null;
   render();
-  registerUser();
+  await registerUser();
   Storage.listen('state', val => {
     if (screen !== 'workout') { state = val; if (state.rampDayIdx === undefined) state.rampDayIdx = 0; if (!state.program) state.program = 'standard'; if (!state.allowedPrograms) state.allowedPrograms = ['standard', 'glute-focus']; render(); }
   });
@@ -1451,9 +1451,11 @@ async function loadAdminData() {
       reg[hash].state = st || {};
       reg[hash].historyCount = Array.isArray(hist) ? hist.length : 0;
       reg[hash].lastWorkout = Array.isArray(hist) && hist.length ? hist[0].date : null;
+      if (!reg[hash].program && st?.program) reg[hash].program = st.program;
+      if (!reg[hash].phase && st?.phase) reg[hash].phase = st.phase;
     }
     adminUsers = reg;
-  } catch(e) { console.warn('Admin load failed:', e); }
+  } catch(e) { console.warn('Admin load failed:', e); adminUsers = adminUsers || {}; }
   adminLoading = false;
   if (screen === 'admin') render();
 }
