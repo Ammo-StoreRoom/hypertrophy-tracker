@@ -1,4 +1,4 @@
-const CACHE = 'ht-v3';
+const CACHE = 'ht-v4';
 const ASSETS = [
   './', './index.html', './css/styles.css',
   './js/firebase-config.js', './js/program-data.js',
