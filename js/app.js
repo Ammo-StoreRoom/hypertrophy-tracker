@@ -27,7 +27,7 @@ let pullY = 0, pullActive = false, pullDist = 0;
 // Admin
 const ADMIN_PIN = '01131998';
 const isAdmin = () => Storage.getPin() === ADMIN_PIN;
-let adminUsers = null, adminExpanded = {}, adminLoading = false;
+let adminUsers = null, adminExpanded = {}, adminLoading = false, adminDiag = null;
 
 const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, program: "standard", units: "lbs", customExercises: [], fatigueFlags: 0, longestStreak: 0, allowedPrograms: ['standard', 'glute-focus'], goals: { targetWeight: 0, lifts: {} } };
 
@@ -1853,6 +1853,8 @@ async function loadAdminData() {
   if (screen === 'admin') render();
   try {
     const reg = await Storage.adminGetRegistry();
+    adminDiag = reg._diag || null;
+    delete reg._diag;
     for (const hash of Object.keys(reg)) {
       const st = await Storage.adminGetUserData(hash, 'state');
       const hist = await Storage.adminGetUserData(hash, 'history');
@@ -1905,6 +1907,28 @@ function renderAdmin() {
       }}, 'Export All'),
     ),
 
+    // Add user by PIN
+    el('div', { cls: 'card full-width' },
+      el('div', { css: 'display:flex;gap:8px;align-items:center' },
+        el('input', { type: 'tel', id: 'admin-add-pin', cls: 'set-input', css: 'flex:1;text-align:left;font-size:14px;padding:10px 12px',
+          placeholder: 'Add user by PIN (MMDDYYYY)', maxlength: '8', inputmode: 'numeric' }),
+        el('button', { cls: 'btn-sm green', css: 'padding:10px 16px', onclick: async () => {
+          const pin = document.getElementById('admin-add-pin')?.value;
+          if (!pin || pin.length !== 8) return;
+          const h = Storage.adminAddUserByPin(pin);
+          if (h) await loadAdminData();
+        }}, 'Add'),
+      ),
+    ),
+
+    // Diagnostics
+    adminDiag ? el('div', { css: 'padding:0 14px;font-size:10px;color:var(--dim);display:flex;gap:10px;flex-wrap:wrap' },
+      el('span', null, `Local: ${adminDiag.local}`),
+      el('span', null, `Registry: ${adminDiag.registry}`),
+      el('span', null, `Firebase: ${adminDiag.usersScan}`),
+      ...(adminDiag.errors || []).map(e => el('span', { css: 'color:var(--red)' }, e)),
+    ) : null,
+
     adminLoading ? el('div', { cls: 'card full-width', css: 'text-align:center' },
       el('div', { css: 'color:var(--accent);font-weight:700' }, 'Loading user data...'),
     ) : null,
@@ -1912,7 +1936,7 @@ function renderAdmin() {
     ...users.map(([hash, user]) => renderAdminUserCard(hash, user)),
 
     !users.length && !adminLoading ? el('div', { cls: 'card full-width', css: 'text-align:center' },
-      el('p', { css: 'color:var(--dim)' }, 'No registered users. Users appear after they log in.'),
+      el('p', { css: 'color:var(--dim)' }, 'No registered users. Add a user by PIN above, or they\'ll appear after they log in.'),
     ) : null,
 
     renderNav(),

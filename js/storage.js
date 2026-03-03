@@ -179,25 +179,34 @@ const Storage = (() => {
     // Admin: build user list from all available sources
     async adminGetRegistry() {
       const reg = {};
+      const diag = { local: 0, registry: 0, usersScan: 0, errors: [] };
       // 1. Local known users (always works)
       try {
         const known = JSON.parse(localStorage.getItem('ht-known-users') || '{}');
         for (const [hash, pin] of Object.entries(known)) {
           reg[hash] = { pin };
         }
+        diag.local = Object.keys(known).length;
       } catch {}
       if (db) {
         // 2. Firebase registry (may fail if rules expired)
         try {
-          const snap = await db.ref('registry').once('value');
+          const snap = await Promise.race([
+            db.ref('registry').once('value'),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
+          ]);
           const fbReg = snap.val() || {};
           for (const [hash, data] of Object.entries(fbReg)) {
             reg[hash] = { ...(reg[hash] || {}), ...data };
           }
-        } catch(e) { console.warn('Firebase registry read failed:', e); }
+          diag.registry = Object.keys(fbReg).length;
+        } catch(e) { diag.errors.push('registry: ' + (e?.message || e)); }
         // 3. Scan Firebase users/ path directly for _meta entries
         try {
-          const usersSnap = await db.ref('users').once('value');
+          const usersSnap = await Promise.race([
+            db.ref('users').once('value'),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
+          ]);
           const allUsers = usersSnap.val() || {};
           for (const [hash, userData] of Object.entries(allUsers)) {
             if (!reg[hash]) reg[hash] = {};
@@ -205,9 +214,25 @@ const Storage = (() => {
               reg[hash] = { ...reg[hash], ...userData._meta };
             }
           }
-        } catch(e) { console.warn('Firebase users scan failed:', e); }
+          diag.usersScan = Object.keys(allUsers).length;
+        } catch(e) { diag.errors.push('users: ' + (e?.message || e)); }
+      } else {
+        diag.errors.push('Firebase not connected');
       }
+      reg._diag = diag;
       return reg;
+    },
+
+    // Admin: add a user by PIN (resolves hash and stores locally)
+    adminAddUserByPin(pin) {
+      if (!/^\d{8}$/.test(pin)) return false;
+      const h = hashPin(pin);
+      try {
+        const known = JSON.parse(localStorage.getItem('ht-known-users') || '{}');
+        known[h] = pin;
+        localStorage.setItem('ht-known-users', JSON.stringify(known));
+      } catch {}
+      return h;
     },
 
     // Admin: read another user's data (Firebase first, localStorage fallback)
