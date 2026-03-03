@@ -33,13 +33,28 @@ const Storage = (() => {
     return `users/${hashPin(userPin)}/${key}`;
   }
 
-  // Local storage helpers
+  // Local storage helpers — keyed per user so multiple accounts stay isolated
+  function lsKey(key) {
+    return userPin ? `ht-${hashPin(userPin)}-${key}` : `ht-${key}`;
+  }
   function localGet(key, fallback) {
-    try { const v = localStorage.getItem('ht-' + key); return v ? JSON.parse(v) : fallback; }
+    try { const v = localStorage.getItem(lsKey(key)); return v ? JSON.parse(v) : fallback; }
     catch { return fallback; }
   }
   function localSet(key, val) {
-    try { localStorage.setItem('ht-' + key, JSON.stringify(val)); } catch(e) { console.error('LS save fail', e); }
+    try { localStorage.setItem(lsKey(key), JSON.stringify(val)); } catch(e) { console.error('LS save fail', e); }
+  }
+  function migrateOldData() {
+    const DATA_KEYS = ['state', 'history', 'bodyWeights'];
+    if (!userPin) return;
+    const prefix = `ht-${hashPin(userPin)}-`;
+    if (DATA_KEYS.some(k => localStorage.getItem(prefix + k) !== null)) return;
+    if (localStorage.getItem('ht-data-migrated')) return;
+    for (const k of DATA_KEYS) {
+      const old = localStorage.getItem('ht-' + k);
+      if (old !== null) localStorage.setItem(prefix + k, old);
+    }
+    localStorage.setItem('ht-data-migrated', '1');
   }
 
   // Public API
@@ -50,14 +65,18 @@ const Storage = (() => {
     login(pin) {
       if (!/^\d{8}$/.test(pin)) return false;
       userPin = pin;
-      localSet('pin', pin);
+      try { localStorage.setItem('ht-pin', JSON.stringify(pin)); } catch {}
+      migrateOldData();
       initFirebase();
       return true;
     },
 
     autoLogin() {
-      const saved = localGet('pin', null);
-      if (saved) { userPin = saved; initFirebase(); return true; }
+      try {
+        const v = localStorage.getItem('ht-pin');
+        const saved = v ? JSON.parse(v) : null;
+        if (saved) { userPin = saved; migrateOldData(); initFirebase(); return true; }
+      } catch {}
       return false;
     },
 

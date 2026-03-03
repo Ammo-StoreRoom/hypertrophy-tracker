@@ -19,7 +19,7 @@
 /* ========== RESET & BASE ========== */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;min-height:100dvh;overflow-x:hidden;-webkit-tap-highlight-color:transparent;transition:background .3s,color .3s}
-body{padding-bottom:72px}
+body{padding-bottom:72px;padding-top:env(safe-area-inset-top)}
 input[type=number]{appearance:textfield;-moz-appearance:textfield}
 input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none}
 
@@ -102,10 +102,10 @@ input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appear
 .increase-tag{color:var(--green);font-size:10px;font-weight:700;margin-left:6px}
 .last-perf{background:var(--input-bg);border-radius:6px;padding:5px 8px;margin-bottom:8px;font-size:11px;color:var(--dim);font-family:var(--mono);transition:background .3s}
 .pr-tag{margin-left:8px;color:var(--gold);font-weight:700}
-.workout-header{position:sticky;top:0;z-index:40}
+.workout-header{position:sticky;top:0;z-index:40;padding-top:env(safe-area-inset-top)}
 
 /* ========== LOGIN ========== */
-.login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;padding:20px}
 .login-box{background:var(--card);border:1px solid var(--accent);border-radius:16px;padding:32px 24px;max-width:340px;width:100%;box-shadow:var(--shadow)}
 .pin-input{background:var(--input-bg);border:2px solid var(--muted);border-radius:10px;color:var(--white);padding:14px;font-size:24px;width:100%;text-align:center;outline:none;font-family:var(--mono);letter-spacing:4px;transition:border-color .2s}
 .pin-input:focus{border-color:var(--accent)}
@@ -136,7 +136,7 @@ input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appear
 .fatigue-banner{background:linear-gradient(135deg,#d97706,#ea580c);color:#fff;margin:10px 14px;border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;font-weight:600;animation:slideDown .3s}
 
 /* ========== OFFLINE BANNER ========== */
-.offline-banner{background:#ef4444;color:#fff;text-align:center;padding:6px 16px;font-size:12px;font-weight:600;position:sticky;top:0;z-index:60}
+.offline-banner{background:#ef4444;color:#fff;text-align:center;padding:6px 16px;padding-top:calc(6px + env(safe-area-inset-top));font-size:12px;font-weight:600;position:sticky;top:0;z-index:60}
 
 /* ========== INSTALL BANNER ========== */
 .install-banner{background:var(--card);border:1px solid var(--accent);border-radius:10px;margin:10px 14px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;animation:slideDown .3s}
