@@ -7,6 +7,7 @@ let state, history, screen, activeDay, inputs, workoutStart;
 let restTimer = 0, restEndTime = null, restInterval = null;
 let modal = null, expandedEntries = {};
 let bodyWeights = [];
+let measurements = [];
 let workoutExercises = [];
 let exerciseNotes = {};
 let expandedPlateCalc = {};
@@ -25,7 +26,7 @@ const ADMIN_PIN = '01131998';
 const isAdmin = () => Storage.getPin() === ADMIN_PIN;
 let adminUsers = null, adminExpanded = {}, adminLoading = false;
 
-const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, program: "standard", units: "lbs", customExercises: [], fatigueFlags: 0, longestStreak: 0, allowedPrograms: ['standard', 'glute-focus'] };
+const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, program: "standard", units: "lbs", customExercises: [], fatigueFlags: 0, longestStreak: 0, allowedPrograms: ['standard', 'glute-focus'], goals: { targetWeight: 0, lifts: {} } };
 
 // ========== INIT & AUTH ==========
 async function init() {
@@ -43,8 +44,10 @@ async function loadData() {
   if (!state.program) state.program = 'standard';
   if (!state.units) state.units = 'lbs';
   if (!state.allowedPrograms) state.allowedPrograms = ['standard', 'glute-focus'];
+  if (!state.goals) state.goals = { targetWeight: 0, lifts: {} };
   history = await Storage.get('history', []);
   bodyWeights = await Storage.get('bodyWeights', []);
+  measurements = await Storage.get('measurements', []);
   screen = 'home'; activeDay = null; inputs = {}; workoutStart = null;
   render();
   await registerUser();
@@ -276,29 +279,32 @@ function calcFatigueScore() {
 function renderRadarChart(vol) {
   const groups = Object.keys(MUSCLE_GROUPS);
   const maxV = Math.max(...groups.map(g => vol[g]?.sets || 0), 1);
-  const cx = 120, cy = 120, r = 95;
+  const cx = 150, cy = 150, r = 90;
   const points = groups.map((g, i) => {
     const angle = (Math.PI * 2 * i / groups.length) - Math.PI / 2;
     const val = (vol[g]?.sets || 0) / maxV;
-    return { x: cx + Math.cos(angle) * r * val, y: cy + Math.sin(angle) * r * val, label: g, angle, sets: vol[g]?.sets || 0 };
+    return { x: cx + Math.cos(angle) * r * val, y: cy + Math.sin(angle) * r * val };
   });
   const idealPoints = groups.map((_, i) => {
     const angle = (Math.PI * 2 * i / groups.length) - Math.PI / 2;
     return `${cx + Math.cos(angle) * r * 0.6},${cy + Math.sin(angle) * r * 0.6}`;
   });
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 240 240');
+  svg.setAttribute('viewBox', '0 0 300 300');
   svg.setAttribute('class', 'radar-chart');
   svg.innerHTML = `
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--card-border)" stroke-width="1"/>
     <polygon points="${idealPoints.join(' ')}" fill="none" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4,4"/>
     <polygon points="${points.map(p => `${p.x},${p.y}`).join(' ')}" fill="rgba(233,69,96,.15)" stroke="var(--accent)" stroke-width="2"/>
     ${groups.map((g, i) => {
       const angle = (Math.PI * 2 * i / groups.length) - Math.PI / 2;
-      const lx = cx + Math.cos(angle) * (r + 14);
-      const ly = cy + Math.sin(angle) * (r + 14);
-      return `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="central" fill="var(--dim)" font-size="8" font-family="var(--font)">${g}</text>`;
+      const lx = cx + Math.cos(angle) * (r + 28);
+      const ly = cy + Math.sin(angle) * (r + 28);
+      const sets = vol[g]?.sets || 0;
+      return `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="central" fill="var(--dim)" font-size="9" font-weight="600" font-family="var(--font)">${g}</text>
+        <text x="${lx}" y="${ly + 11}" text-anchor="middle" fill="var(--accent)" font-size="8" font-weight="700" font-family="var(--mono)">${sets}</text>`;
     }).join('')}
-    ${points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="var(--accent)"/>`).join('')}
+    ${points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="var(--accent)"/>`).join('')}
   `;
   return svg;
 }
@@ -753,6 +759,7 @@ const NAV_ITEMS = [
   ['home', '\uD83C\uDFE0', 'Home'],
   ['history', '\uD83D\uDCCB', 'History'],
   ['progress', '\uD83D\uDCC8', 'Progress'],
+  ['health', '\u2764\uFE0F', 'Health'],
   ['settings', '\u2699\uFE0F', 'Settings'],
 ];
 const isDesktop = () => window.matchMedia('(min-width:900px)').matches;
@@ -813,7 +820,6 @@ function renderHome() {
     return ws;
   })();
   const daysSince = history[0]?.date ? Math.floor((Date.now() - new Date(history[0].date).getTime()) / 86400000) : '-';
-  const todayBW = bodyWeights.find(b => b.date === new Date().toISOString().split('T')[0]);
 
   return el('div', { cls: 'screen' }, renderModal(),
     el('div', { id: 'pull-indicator', cls: 'pull-indicator mobile-only', css: 'height:0;opacity:0;overflow:hidden' }),
@@ -856,21 +862,6 @@ function renderHome() {
       `Longest streak: ${state.longestStreak} workouts`) : null,
 
     el('div', { cls: 'home-grid' },
-      // Body weight
-      el('div', { cls: 'card' },
-        el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Body Weight'),
-        el('div', { cls: 'bw-row' },
-          el('input', { type: 'number', inputmode: 'decimal', cls: 'bw-input', placeholder: unitLabel(),
-            value: todayBW?.weight || '',
-            onchange: e => { const w = parseFloat(e.target.value); if (w > 0) logBodyWeight(w); }
-          }),
-          el('span', { css: 'font-size:12px;color:var(--dim)' }, `${unitLabel()} today`),
-          bodyWeights.length > 1 ? el('span', { css: 'font-size:12px;color:var(--dim);margin-left:auto' },
-            `Trend: ${bodyWeights.slice(-1)[0]?.weight || '-'} ${unitLabel()}`
-          ) : null,
-        ),
-      ),
-
       el('div', { cls: 'card', css: 'display:flex;justify-content:space-between;align-items:center' },
         el('div', null,
           el('div', { css: 'display:flex;gap:8px;align-items:center;margin-bottom:4px' },
@@ -1168,10 +1159,6 @@ function renderHistory() {
 function renderProgress() {
   const vol = getWeeklyVolume();
   const maxSets = Math.max(...Object.values(vol).map(v => v.sets), 1);
-  const recentBW = bodyWeights.slice(-20);
-  const bwMax = recentBW.length ? Math.max(...recentBW.map(b => b.weight)) : 1;
-  const bwMin = recentBW.length ? Math.min(...recentBW.map(b => b.weight)) : 0;
-  const bwRange = bwMax - bwMin || 1;
   const recentDurations = history.slice(0, 12).reverse();
   const maxDur = Math.max(...recentDurations.map(h => h.duration || 0), 1);
 
@@ -1215,20 +1202,6 @@ function renderProgress() {
             el('div', { cls: 'vol-bar-fill', css: `width:${(data.sets/maxSets)*100}%` })),
           el('span', { cls: 'vol-sets' }, String(data.sets)),
         )
-      ),
-    ) : null,
-
-    // Body weight trend
-    recentBW.length > 1 ? el('div', { cls: 'card' },
-      el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px' },
-        el('span', { cls: 'label' }, 'Body Weight'),
-        el('span', { css: 'font-size:12px;color:var(--accent);font-weight:700;font-family:var(--mono)' },
-          fmtW(recentBW[recentBW.length-1].weight)),
-      ),
-      el('div', { cls: 'bw-chart' },
-        ...recentBW.map(b => el('div', { cls: 'bw-bar',
-          css: `height:${Math.max(((b.weight - bwMin) / bwRange) * 50 + 6, 6)}px`,
-          title: `${b.date}: ${fmtW(b.weight)}` })),
       ),
     ) : null,
 
@@ -1305,6 +1278,264 @@ function renderProgress() {
         el('div', { css: `text-align:center;font-size:24px;font-weight:900;font-family:var(--mono);margin-top:6px;color:${color}` }, String(score)),
       );
     })(),
+
+    renderNav(),
+  );
+}
+
+// ========== HEALTH TAB ==========
+function todayHealthKey() { return new Date().toISOString().split('T')[0]; }
+
+function getTodayHealth() {
+  const today = todayHealthKey();
+  const bw = bodyWeights.find(b => b.date === today);
+  return {
+    weight: bw?.weight || '',
+    sleep: bw?.sleep || '',
+    readiness: bw?.readiness || 0,
+    water: bw?.water || 0,
+  };
+}
+
+async function saveHealthField(field, value) {
+  const today = todayHealthKey();
+  let idx = bodyWeights.findIndex(b => b.date === today);
+  if (idx < 0) { bodyWeights.push({ date: today }); idx = bodyWeights.length - 1; }
+  bodyWeights[idx][field] = value;
+  bodyWeights.sort((a, b) => a.date.localeCompare(b.date));
+  if (bodyWeights.length > 365) bodyWeights = bodyWeights.slice(-365);
+  await Storage.set('bodyWeights', bodyWeights);
+  render();
+}
+
+async function saveMeasurements(data) {
+  const today = todayHealthKey();
+  const idx = measurements.findIndex(m => m.date === today);
+  if (idx >= 0) measurements[idx] = { ...measurements[idx], ...data, date: today };
+  else measurements.push({ ...data, date: today });
+  measurements.sort((a, b) => a.date.localeCompare(b.date));
+  if (measurements.length > 365) measurements = measurements.slice(-365);
+  await Storage.set('measurements', measurements);
+}
+
+async function saveGoals(goals) {
+  state.goals = goals;
+  await Storage.set('state', state);
+  render();
+}
+
+const MEASURE_FIELDS = [
+  { key: 'chest', label: 'Chest' }, { key: 'waist', label: 'Waist' },
+  { key: 'hips', label: 'Hips' }, { key: 'bicepL', label: 'Bicep L' },
+  { key: 'bicepR', label: 'Bicep R' }, { key: 'thighL', label: 'Thigh L' },
+  { key: 'thighR', label: 'Thigh R' }, { key: 'neck', label: 'Neck' },
+];
+
+function renderHealth() {
+  const h = getTodayHealth();
+  const recentBW = bodyWeights.filter(b => b.weight).slice(-20);
+  const bwMax = recentBW.length ? Math.max(...recentBW.map(b => b.weight)) : 1;
+  const bwMin = recentBW.length ? Math.min(...recentBW.map(b => b.weight)) : 0;
+  const bwRange = bwMax - bwMin || 1;
+  const prevBW = recentBW.length >= 2 ? recentBW[recentBW.length - 2].weight : null;
+  const curBW = recentBW.length ? recentBW[recentBW.length - 1].weight : null;
+  const bwDelta = prevBW && curBW ? curBW - prevBW : null;
+
+  const recentSleep = bodyWeights.filter(b => b.sleep).slice(-14);
+  const sleepMax = recentSleep.length ? Math.max(...recentSleep.map(b => b.sleep)) : 1;
+  const avgSleep = recentSleep.length ? (recentSleep.reduce((s, b) => s + b.sleep, 0) / recentSleep.length).toFixed(1) : '-';
+
+  const goals = state.goals || { targetWeight: 0, lifts: {} };
+  const latestMeasure = measurements.length ? measurements[measurements.length - 1] : {};
+  const prevMeasure = measurements.length >= 2 ? measurements[measurements.length - 2] : {};
+
+  const waterTarget = 8;
+
+  return el('div', { cls: 'screen screen-grid' }, renderModal(),
+    el('div', { cls: 'header' }, el('h1', null, 'HEALTH'), el('div', { cls: 'sub' }, 'Body, sleep & wellness')),
+
+    // Quick stats row
+    el('div', { cls: 'card full-width' },
+      el('div', { cls: 'health-stat-row' },
+        el('div', { cls: 'health-stat' },
+          el('div', { cls: 'health-stat-val' }, curBW ? fmtW(curBW) : '--'),
+          el('div', { cls: 'health-stat-label' }, `Weight (${unitLabel()})`),
+          bwDelta !== null ? el('div', { cls: `health-stat-delta ${bwDelta > 0 ? 'up' : bwDelta < 0 ? 'down' : 'flat'}` },
+            `${bwDelta > 0 ? '+' : ''}${bwDelta.toFixed(1)}`) : null,
+        ),
+        el('div', { cls: 'health-stat' },
+          el('div', { cls: 'health-stat-val' }, avgSleep !== '-' ? avgSleep : '--'),
+          el('div', { cls: 'health-stat-label' }, 'Avg Sleep (h)'),
+        ),
+        el('div', { cls: 'health-stat' },
+          el('div', { cls: 'health-stat-val' }, h.readiness ? ['', '\u{1F534}', '\u{1F7E0}', '\u{1F7E1}', '\u{1F7E2}', '\u{1F7E2}'][h.readiness] || '--' : '--'),
+          el('div', { cls: 'health-stat-label' }, 'Readiness'),
+        ),
+      ),
+    ),
+
+    // Body weight input + chart
+    el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Body Weight'),
+      el('div', { cls: 'bw-row' },
+        el('input', { type: 'number', inputmode: 'decimal', cls: 'bw-input', placeholder: unitLabel(),
+          value: h.weight || '',
+          onchange: e => { const w = parseFloat(e.target.value); if (w > 0) saveHealthField('weight', w); }
+        }),
+        el('span', { css: 'font-size:12px;color:var(--dim)' }, `${unitLabel()} today`),
+      ),
+      recentBW.length > 1 ? el('div', { cls: 'bw-chart', css: 'margin-top:10px' },
+        ...recentBW.map(b => el('div', { cls: 'bw-bar',
+          css: `height:${Math.max(((b.weight - bwMin) / bwRange) * 50 + 6, 6)}px`,
+          title: `${b.date}: ${fmtW(b.weight)}` })),
+      ) : null,
+    ),
+
+    // Water intake
+    el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Water Intake'),
+      el('div', { cls: 'water-counter' },
+        el('button', { cls: 'water-btn', onclick: () => { if (h.water > 0) saveHealthField('water', h.water - 1); } }, '\u2212'),
+        el('div', null,
+          el('div', { cls: 'water-val' }, String(h.water)),
+          el('div', { cls: 'water-target' }, `of ${waterTarget} glasses`),
+        ),
+        el('button', { cls: 'water-btn', onclick: () => saveHealthField('water', h.water + 1) }, '+'),
+      ),
+      el('div', { cls: 'water-bar-row' },
+        ...Array.from({ length: waterTarget }, (_, i) =>
+          el('div', { cls: `water-dot ${i < h.water ? 'filled' : ''}` })
+        ),
+      ),
+    ),
+
+    // Sleep tracking
+    el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Sleep (hours)'),
+      el('div', { cls: 'quick-pills' },
+        ...[4, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10].map(hrs =>
+          el('button', {
+            cls: `quick-pill ${h.sleep === hrs ? 'active' : ''}`,
+            onclick: () => saveHealthField('sleep', hrs),
+          }, String(hrs))
+        ),
+      ),
+      recentSleep.length > 1 ? el('div', { cls: 'sleep-chart', css: 'margin-top:10px' },
+        ...recentSleep.map(b => el('div', null,
+          el('div', { cls: 'sleep-bar', css: `height:${(b.sleep / sleepMax) * 40}px`, title: `${b.date}: ${b.sleep}h` }),
+        )),
+      ) : null,
+    ),
+
+    // Readiness / Recovery
+    el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'How do you feel today?'),
+      el('div', { cls: 'readiness-row' },
+        ...[ [1, '\u{1F634}'], [2, '\u{1F615}'], [3, '\u{1F610}'], [4, '\u{1F60A}'], [5, '\u{1F4AA}'] ].map(([val, emoji]) =>
+          el('button', {
+            cls: `readiness-btn ${h.readiness === val ? 'active' : ''}`,
+            onclick: () => saveHealthField('readiness', val),
+          }, emoji)
+        ),
+      ),
+      el('div', { css: 'text-align:center;margin-top:4px;font-size:11px;color:var(--dim)' },
+        h.readiness ? ['', 'Exhausted', 'Tired', 'Okay', 'Good', 'Great'][h.readiness] : 'Tap to rate'),
+    ),
+
+    // Body measurements
+    el('div', { cls: 'card full-width' },
+      el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px' },
+        el('span', { cls: 'label' }, 'Body Measurements'),
+        el('span', { css: 'font-size:10px;color:var(--dim)' }, latestMeasure.date ? `Last: ${fmtDate(latestMeasure.date)}` : ''),
+      ),
+      el('div', { cls: 'measure-grid' },
+        ...MEASURE_FIELDS.map(f => {
+          const prev = prevMeasure[f.key];
+          return el('div', { cls: 'measure-item' },
+            el('div', { cls: 'measure-label' }, f.label),
+            el('input', {
+              type: 'number', inputmode: 'decimal', cls: 'measure-input',
+              placeholder: latestMeasure[f.key] ? String(latestMeasure[f.key]) : '--',
+              onchange: e => {
+                const v = parseFloat(e.target.value);
+                if (v > 0) { latestMeasure[f.key] = v; saveMeasurements(latestMeasure); }
+              },
+            }),
+            prev ? el('div', { cls: 'measure-last' }, `prev: ${prev} ${unitLabel()}`) : null,
+          );
+        }),
+      ),
+    ),
+
+    // Goals
+    el('div', { cls: 'card full-width' },
+      el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Goals'),
+
+      // Weight goal
+      el('div', { cls: 'goal-row' },
+        el('div', { cls: 'goal-header' },
+          el('span', { cls: 'goal-name' }, 'Target Weight'),
+          el('span', { css: 'font-size:11px;color:var(--dim)' },
+            goals.targetWeight ? `${fmtW(goals.targetWeight)} ${unitLabel()}` : 'Not set'),
+        ),
+        !goals.targetWeight ? el('div', { css: 'display:flex;gap:6px;align-items:center' },
+          el('input', { type: 'number', inputmode: 'decimal', cls: 'measure-input', css: 'width:100px',
+            placeholder: unitLabel(),
+            id: 'goal-weight-input',
+          }),
+          el('button', { cls: 'btn-sm green', onclick: () => {
+            const v = parseFloat(document.getElementById('goal-weight-input')?.value);
+            if (v > 0) saveGoals({ ...goals, targetWeight: v });
+          }}, 'Set'),
+        ) : (() => {
+          const start = recentBW.length ? recentBW[0].weight : curBW || 0;
+          const diff = Math.abs(goals.targetWeight - start);
+          const progress = diff > 0 && curBW ? Math.min(Math.abs(curBW - start) / diff * 100, 100) : 0;
+          const remaining = curBW ? Math.abs(goals.targetWeight - curBW).toFixed(1) : '?';
+          return el('div', null,
+            el('div', { cls: 'goal-bar' },
+              el('div', { cls: 'goal-fill', css: `width:${progress}%;background:var(--green)` }),
+            ),
+            el('div', { css: 'display:flex;justify-content:space-between;margin-top:2px' },
+              el('span', { cls: 'goal-pct' }, `${progress.toFixed(0)}%`),
+              el('span', { css: 'font-size:10px;color:var(--dim)' }, `${remaining} ${unitLabel()} to go`),
+            ),
+            el('button', { cls: 'btn-sm red', css: 'margin-top:6px', onclick: () => saveGoals({ ...goals, targetWeight: 0 }) }, 'Clear Goal'),
+          );
+        })(),
+      ),
+
+      // Lift goals
+      el('div', { css: 'margin-top:12px' },
+        el('div', { css: 'font-size:12px;font-weight:600;color:var(--white);margin-bottom:6px' }, 'Lift Goals'),
+        ...curProgram().compounds.map(name => {
+          const target = goals.lifts?.[name] || 0;
+          const pr = getPR(name);
+          const prVal = pr ? parseFloat(pr.weight) : 0;
+          const progress = target > 0 && prVal > 0 ? Math.min((prVal / target) * 100, 100) : 0;
+          return el('div', { cls: 'goal-row' },
+            el('div', { cls: 'goal-header' },
+              el('span', { cls: 'goal-name' }, name),
+              el('span', { cls: 'goal-nums' }, target ? `${fmtW(prVal)} / ${fmtW(target)}` : `PR: ${prVal ? fmtW(prVal) : '--'}`),
+            ),
+            target > 0 ? el('div', null,
+              el('div', { cls: 'goal-bar' },
+                el('div', { cls: 'goal-fill', css: `width:${progress}%;background:${progress >= 100 ? 'var(--gold)' : 'var(--accent)'}` }),
+              ),
+              el('div', { cls: 'goal-pct' }, `${progress.toFixed(0)}%`),
+            ) : el('div', { css: 'display:flex;gap:6px;align-items:center' },
+              el('input', { type: 'number', inputmode: 'decimal', cls: 'measure-input', css: 'width:80px',
+                placeholder: unitLabel(), id: `goal-lift-${name.replace(/\s/g, '-')}`,
+              }),
+              el('button', { cls: 'btn-sm green', onclick: () => {
+                const v = parseFloat(document.getElementById(`goal-lift-${name.replace(/\s/g, '-')}`)?.value);
+                if (v > 0) { const newLifts = { ...goals.lifts, [name]: v }; saveGoals({ ...goals, lifts: newLifts }); }
+              }}, 'Set'),
+            ),
+          );
+        }),
+      ),
+    ),
 
     renderNav(),
   );
@@ -1680,8 +1911,8 @@ function render() {
   app.innerHTML = '';
   const screens = {
     login: renderLogin, home: renderHome, workout: renderWorkout,
-    history: renderHistory, progress: renderProgress, settings: renderSettings,
-    admin: renderAdmin,
+    history: renderHistory, progress: renderProgress, health: renderHealth,
+    settings: renderSettings, admin: renderAdmin,
   };
   const fn = screens[screen];
   if (fn) app.appendChild(fn());
