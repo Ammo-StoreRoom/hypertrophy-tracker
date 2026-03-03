@@ -1,0 +1,11 @@
+{
+  "name": "Hypertrophy Tracker",
+  "short_name": "Hypertrophy",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#080810",
+  "theme_color": "#080810",
+  "icons": [
+    { "src": "img/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

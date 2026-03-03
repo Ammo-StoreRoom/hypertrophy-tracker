@@ -1,0 +1,128 @@
+// ============================================
+// STORAGE — Firebase sync + localStorage fallback
+// ============================================
+const Storage = (() => {
+  let db = null;
+  let userPin = null;
+  let syncCallbacks = [];
+
+  function hashPin(pin) {
+    let hash = 0;
+    for (let i = 0; i < pin.length; i++) {
+      const c = pin.charCodeAt(i);
+      hash = ((hash << 5) - hash) + c;
+      hash |= 0;
+    }
+    return 'u' + Math.abs(hash).toString(36);
+  }
+
+  function initFirebase() {
+    if (typeof firebase === 'undefined') return false;
+    try {
+      if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+      db = firebase.database();
+      return true;
+    } catch(e) { console.error('Firebase init failed:', e); return false; }
+  }
+
+  function getPath(key) {
+    return `users/${hashPin(userPin)}/${key}`;
+  }
+
+  // Local storage helpers
+  function localGet(key, fallback) {
+    try { const v = localStorage.getItem('ht-' + key); return v ? JSON.parse(v) : fallback; }
+    catch { return fallback; }
+  }
+  function localSet(key, val) {
+    try { localStorage.setItem('ht-' + key, JSON.stringify(val)); } catch(e) { console.error('LS save fail', e); }
+  }
+
+  // Public API
+  return {
+    isLoggedIn() { return !!userPin; },
+    getPin() { return userPin; },
+
+    login(pin) {
+      if (!/^\d{8}$/.test(pin)) return false;
+      userPin = pin;
+      localSet('pin', pin);
+      initFirebase();
+      return true;
+    },
+
+    autoLogin() {
+      const saved = localGet('pin', null);
+      if (saved) { userPin = saved; initFirebase(); return true; }
+      return false;
+    },
+
+    logout() {
+      userPin = null;
+      localStorage.removeItem('ht-pin');
+    },
+
+    async get(key, fallback) {
+      // Always read local first (fast)
+      const local = localGet(key, fallback);
+
+      // Try to get from Firebase
+      if (db && userPin) {
+        try {
+          const snap = await db.ref(getPath(key)).once('value');
+          const remote = snap.val();
+          if (remote !== null) {
+            // Remote wins — merge if it's newer
+            localSet(key, remote);
+            return remote;
+          } else {
+            // Local has data but remote doesn't — push local up
+            if (local !== fallback) {
+              db.ref(getPath(key)).set(local).catch(() => {});
+            }
+            return local;
+          }
+        } catch(e) {
+          console.warn('Firebase read failed, using local:', e);
+          return local;
+        }
+      }
+      return local;
+    },
+
+    async set(key, val) {
+      // Always save local immediately
+      localSet(key, val);
+
+      // Push to Firebase
+      if (db && userPin) {
+        try {
+          await db.ref(getPath(key)).set(val);
+        } catch(e) {
+          console.warn('Firebase write failed, saved locally:', e);
+        }
+      }
+    },
+
+    // Listen for remote changes (real-time sync)
+    listen(key, callback) {
+      if (db && userPin) {
+        const ref = db.ref(getPath(key));
+        ref.on('value', snap => {
+          const val = snap.val();
+          if (val !== null) {
+            localSet(key, val);
+            callback(val);
+          }
+        });
+        syncCallbacks.push({ ref, key });
+      }
+    },
+
+    // Stop listening
+    unlisten() {
+      syncCallbacks.forEach(({ ref }) => ref.off());
+      syncCallbacks = [];
+    },
+  };
+})();
