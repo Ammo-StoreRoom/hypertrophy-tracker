@@ -341,5 +341,12 @@ input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appear
 .rest-pill.active{border-color:var(--accent);color:var(--accent)}
 .rest-pill:active{transform:scale(.95)}
 
+/* ========== ADMIN PORTAL ========== */
+.admin-card{border-left:3px solid var(--accent)}
+.admin-you-badge{font-size:9px;font-weight:800;color:var(--accent);background:rgba(233,69,96,.12);border-radius:3px;padding:1px 6px;letter-spacing:.5px}
+.admin-expanded{margin-top:14px;border-top:1px solid var(--card-border);padding-top:14px}
+.admin-section{margin-bottom:14px}
+.admin-section:last-child{margin-bottom:0}
+
 /* ========== SCROLLBAR ========== */
 ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--muted);border-radius:4px}

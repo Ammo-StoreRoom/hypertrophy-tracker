@@ -150,5 +150,52 @@ const Storage = (() => {
       syncCallbacks.forEach(({ ref }) => ref.off());
       syncCallbacks = [];
     },
+
+    getHash() { return userPin ? hashPin(userPin) : null; },
+
+    // Register current user in the shared registry (called on each login)
+    async registerSelf(info) {
+      if (!db || !userPin) return;
+      try {
+        await db.ref(`registry/${hashPin(userPin)}`).update({ pin: userPin, ...info });
+      } catch(e) { console.warn('Registry update failed:', e); }
+    },
+
+    // Admin: read full registry
+    async adminGetRegistry() {
+      if (!db) return {};
+      try {
+        const snap = await db.ref('registry').once('value');
+        return snap.val() || {};
+      } catch(e) { console.warn('Registry read failed:', e); return {}; }
+    },
+
+    // Admin: read another user's data
+    async adminGetUserData(userHash, key) {
+      if (!db) return null;
+      try {
+        const snap = await db.ref(`users/${userHash}/${key}`).once('value');
+        return snap.val();
+      } catch(e) { console.warn('Admin read failed:', e); return null; }
+    },
+
+    // Admin: write another user's data
+    async adminSetUserData(userHash, key, val) {
+      if (!db) return false;
+      try {
+        await db.ref(`users/${userHash}/${key}`).set(val);
+        return true;
+      } catch(e) { console.warn('Admin write failed:', e); return false; }
+    },
+
+    // Admin: delete all data for a user
+    async adminResetUser(userHash) {
+      if (!db) return false;
+      try {
+        await db.ref(`users/${userHash}`).remove();
+        await db.ref(`registry/${userHash}`).remove();
+        return true;
+      } catch(e) { console.warn('Admin reset failed:', e); return false; }
+    },
   };
 })();

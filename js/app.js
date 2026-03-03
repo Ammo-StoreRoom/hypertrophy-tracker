@@ -20,7 +20,12 @@ let undoEntry = null, undoPrevState = null, undoTimeout = null;
 let theme = 'dark';
 let pullY = 0, pullActive = false, pullDist = 0;
 
-const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, program: "standard", units: "lbs", customExercises: [], fatigueFlags: 0, longestStreak: 0 };
+// Admin
+const ADMIN_PIN = '01131998';
+const isAdmin = () => Storage.getPin() === ADMIN_PIN;
+let adminUsers = null, adminExpanded = {}, adminLoading = false;
+
+const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, program: "standard", units: "lbs", customExercises: [], fatigueFlags: 0, longestStreak: 0, allowedPrograms: ['standard', 'glute-focus'] };
 
 // ========== INIT & AUTH ==========
 async function init() {
@@ -37,15 +42,26 @@ async function loadData() {
   if (state.rampDayIdx === undefined) state.rampDayIdx = 0;
   if (!state.program) state.program = 'standard';
   if (!state.units) state.units = 'lbs';
+  if (!state.allowedPrograms) state.allowedPrograms = ['standard', 'glute-focus'];
   history = await Storage.get('history', []);
   bodyWeights = await Storage.get('bodyWeights', []);
   screen = 'home'; activeDay = null; inputs = {}; workoutStart = null;
   render();
+  registerUser();
   Storage.listen('state', val => {
-    if (screen !== 'workout') { state = val; if (state.rampDayIdx === undefined) state.rampDayIdx = 0; if (!state.program) state.program = 'standard'; render(); }
+    if (screen !== 'workout') { state = val; if (state.rampDayIdx === undefined) state.rampDayIdx = 0; if (!state.program) state.program = 'standard'; if (!state.allowedPrograms) state.allowedPrograms = ['standard', 'glute-focus']; render(); }
   });
   Storage.listen('history', val => {
     if (screen !== 'workout') { history = val || []; render(); }
+  });
+}
+
+async function registerUser() {
+  await Storage.registerSelf({
+    lastActive: new Date().toISOString().split('T')[0],
+    program: state.program,
+    phase: state.phase,
+    workoutCount: history.length,
   });
 }
 
@@ -733,15 +749,27 @@ function renderModal() {
   );
 }
 
-const NAV_ICONS = { home: '\uD83C\uDFE0', history: '\uD83D\uDCCB', progress: '\uD83D\uDCC8', settings: '\u2699\uFE0F' };
+const NAV_ITEMS = [
+  ['home', '\uD83C\uDFE0', 'Home'],
+  ['history', '\uD83D\uDCCB', 'History'],
+  ['progress', '\uD83D\uDCC8', 'Progress'],
+  ['settings', '\u2699\uFE0F', 'Settings'],
+];
 const isDesktop = () => window.matchMedia('(min-width:900px)').matches;
 
 function renderNav() {
+  const items = [...NAV_ITEMS];
+  if (isAdmin()) items.push(['admin', '\uD83D\uDEE1\uFE0F', 'Admin']);
   return el('div', { cls: 'nav' },
-    ...['home','history','progress','settings'].map(k =>
-      el('button', { cls: screen === k ? 'active' : '', onclick: () => { if (screen !== 'workout') { screen = k; render(); } } },
-        el('span', { cls: 'nav-icon' }, NAV_ICONS[k]),
-        el('span', { cls: 'nav-label' }, k[0].toUpperCase() + k.slice(1)))
+    ...items.map(([k, icon, label]) =>
+      el('button', { cls: screen === k ? 'active' : '', onclick: () => {
+        if (screen === 'workout') return;
+        screen = k;
+        if (k === 'admin' && !adminUsers) loadAdminData();
+        render();
+      }},
+        el('span', { cls: 'nav-icon' }, icon),
+        el('span', { cls: 'nav-label' }, label))
     ),
   );
 }
@@ -1322,11 +1350,11 @@ function renderSettings() {
             : el('button', { cls: 'btn-ghost', onclick: async () => { await requestNotifPermission(); render(); } }, 'Enable Notifications'),
     ),
 
-    // Program
+    // Program (filtered by admin-assigned allowedPrograms)
     el('div', { cls: 'card full-width' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Workout Program'),
       el('div', { css: 'display:flex;gap:8px;flex-wrap:wrap' },
-        ...[['standard','Standard PPL'],['glute-focus','Glute-Focus PPL']].map(([k,l]) =>
+        ...ALL_PROGRAMS.filter(([k]) => (state.allowedPrograms || ['standard','glute-focus']).includes(k)).map(([k,l]) =>
           el('button', { cls: `btn-ghost ${state.program===k?'':'muted'}`,
             css: state.program===k?'border-color:var(--accent);color:var(--accent)':null,
             onclick: async () => { state.program=k; state.phase='rampup'; state.rampWeek='Week 1'; state.rampDayIdx=0; state.mesoWeek=1; state.pplIdx=0; await Storage.set('state',state); render(); } }, l)),
@@ -1402,15 +1430,245 @@ function renderSettings() {
     el('div', { cls: 'card' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Account'),
       el('button', { cls: 'btn-ghost muted', onclick: doLogout }, 'Log Out'),
-    ),
-    el('div', { cls: 'card full-width', css: 'border-color:#ef4444' },
-      el('div', { cls: 'label', css: 'margin-bottom:10px;color:#ef4444' }, 'Danger Zone'),
-      el('button', { cls: 'btn btn-red', onclick: () => {
-        modal = { title: 'Reset Everything?', message: 'Deletes ALL data on all devices permanently.',
-          onConfirm: resetAll }; render();
-      }}, 'RESET EVERYTHING'),
+      el('div', { css: 'font-size:10px;color:var(--dim);margin-top:8px' },
+        `PIN: ${Storage.getPin()?.slice(0,2)}/${Storage.getPin()?.slice(2,4)}/${Storage.getPin()?.slice(4) || ''}`),
     ),
     renderNav(),
+  );
+}
+
+// ========== ADMIN PORTAL ==========
+const ALL_PROGRAMS = [['standard', 'Standard PPL'], ['glute-focus', 'Glute-Focus PPL']];
+
+async function loadAdminData() {
+  adminLoading = true;
+  if (screen === 'admin') render();
+  try {
+    const reg = await Storage.adminGetRegistry();
+    for (const hash of Object.keys(reg)) {
+      const st = await Storage.adminGetUserData(hash, 'state');
+      const hist = await Storage.adminGetUserData(hash, 'history');
+      reg[hash].state = st || {};
+      reg[hash].historyCount = Array.isArray(hist) ? hist.length : 0;
+      reg[hash].lastWorkout = Array.isArray(hist) && hist.length ? hist[0].date : null;
+    }
+    adminUsers = reg;
+  } catch(e) { console.warn('Admin load failed:', e); }
+  adminLoading = false;
+  if (screen === 'admin') render();
+}
+
+function renderAdmin() {
+  if (!isAdmin()) { screen = 'home'; render(); return el('div'); }
+
+  const users = adminUsers ? Object.entries(adminUsers) : [];
+  const totalWorkouts = users.reduce((s, [, u]) => s + (u.historyCount || 0), 0);
+  const activeToday = users.filter(([, u]) => u.lastActive === new Date().toISOString().split('T')[0]).length;
+
+  return el('div', { cls: 'screen screen-grid' }, renderModal(),
+    el('div', { cls: 'header' },
+      el('h1', null, 'ADMIN PORTAL'),
+      el('div', { cls: 'sub' }, 'User management & programs'),
+    ),
+
+    el('div', { cls: 'stats' },
+      ...[
+        [users.length, 'Users', 'accent'],
+        [totalWorkouts, 'Workouts', 'green'],
+        [activeToday, 'Active Today', ''],
+      ].map(([v, l, c]) => el('div', { cls: 'stat-card' },
+        el('div', { cls: `stat-val ${c}` }, String(v)),
+        el('div', { cls: 'label' }, l))),
+    ),
+
+    el('div', { css: 'padding:10px 14px;display:flex;gap:8px' },
+      el('button', { cls: 'btn-ghost', css: 'flex:1', onclick: async () => { await loadAdminData(); } }, 'Refresh'),
+      el('button', { cls: 'btn-ghost muted', css: 'flex:1', onclick: () => {
+        const data = JSON.stringify(adminUsers, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `ht-admin-export-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+      }}, 'Export All'),
+    ),
+
+    adminLoading ? el('div', { cls: 'card full-width', css: 'text-align:center' },
+      el('div', { css: 'color:var(--accent);font-weight:700' }, 'Loading user data...'),
+    ) : null,
+
+    ...users.map(([hash, user]) => renderAdminUserCard(hash, user)),
+
+    !users.length && !adminLoading ? el('div', { cls: 'card full-width', css: 'text-align:center' },
+      el('p', { css: 'color:var(--dim)' }, 'No registered users. Users appear after they log in.'),
+    ) : null,
+
+    renderNav(),
+  );
+}
+
+function renderAdminUserCard(hash, user) {
+  const exp = adminExpanded[hash];
+  const pin = user.pin || '????????';
+  const fmtPin = `${pin.slice(0,2)}/${pin.slice(2,4)}/${pin.slice(4)}`;
+  const isSelf = user.pin === Storage.getPin();
+  const progLabel = ALL_PROGRAMS.find(([k]) => k === user.state?.program)?.[1] || 'Unknown';
+  const phaseLabel = user.state?.phase === 'ppl'
+    ? `PPL W${user.state.mesoWeek || 1}`
+    : `Ramp-Up ${user.state?.rampWeek || 'W1'}`;
+
+  return el('div', { cls: 'card full-width admin-card' },
+    el('div', { css: 'display:flex;justify-content:space-between;align-items:center;cursor:pointer',
+      onclick: () => { adminExpanded[hash] = !exp; render(); } },
+      el('div', null,
+        el('div', { css: 'display:flex;align-items:center;gap:8px' },
+          el('span', { css: 'font-size:16px;font-weight:800;color:var(--white);font-family:var(--mono)' }, fmtPin),
+          isSelf ? el('span', { cls: 'admin-you-badge' }, 'YOU') : null,
+          el('span', { css: `width:8px;height:8px;border-radius:50%;background:${user.lastActive === new Date().toISOString().split('T')[0] ? 'var(--green)' : 'var(--muted)'}` }),
+        ),
+        el('div', { css: 'font-size:11px;color:var(--dim);margin-top:3px' },
+          `${progLabel} \u2022 ${phaseLabel} \u2022 ${user.historyCount || 0} workouts`),
+      ),
+      el('span', { css: 'color:var(--dim);font-size:16px' }, exp ? '\u25B2' : '\u25BC'),
+    ),
+    exp ? renderAdminUserExpanded(hash, user) : null,
+  );
+}
+
+function renderAdminUserExpanded(hash, user) {
+  const st = user.state || {};
+  const allowed = st.allowedPrograms || ['standard', 'glute-focus'];
+  const isSelf = user.pin === Storage.getPin();
+
+  return el('div', { cls: 'admin-expanded' },
+    el('div', { css: 'font-size:11px;color:var(--dim);margin-bottom:12px' },
+      `Last active: ${user.lastActive || 'Unknown'}`,
+      user.lastWorkout ? ` \u2022 Last workout: ${fmtDate(user.lastWorkout)}` : ''),
+
+    // Active program
+    el('div', { cls: 'admin-section' },
+      el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Active Program'),
+      el('div', { css: 'display:flex;gap:6px;flex-wrap:wrap' },
+        ...ALL_PROGRAMS.map(([k, l]) =>
+          el('button', {
+            cls: `btn-ghost ${st.program === k ? '' : 'muted'}`,
+            css: `font-size:12px;padding:8px 12px${st.program === k ? ';border-color:var(--accent);color:var(--accent)' : ''}`,
+            onclick: async () => {
+              const s = { ...st, program: k, phase: 'rampup', rampWeek: 'Week 1', rampDayIdx: 0, mesoWeek: 1, pplIdx: 0 };
+              await Storage.adminSetUserData(hash, 'state', s);
+              if (isSelf) { state = s; await Storage.set('state', state); }
+              await loadAdminData();
+            }
+          }, l)),
+      ),
+    ),
+
+    // Allowed programs
+    el('div', { cls: 'admin-section' },
+      el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Allowed Programs'),
+      el('div', { css: 'display:flex;gap:6px;flex-wrap:wrap' },
+        ...ALL_PROGRAMS.map(([k, l]) => {
+          const on = allowed.includes(k);
+          return el('button', {
+            cls: `btn-sm ${on ? 'green' : ''}`,
+            css: 'font-size:11px',
+            onclick: async () => {
+              let next = [...allowed];
+              if (on && next.length > 1) next = next.filter(p => p !== k);
+              else if (!on) next.push(k);
+              const s = { ...st, allowedPrograms: next };
+              if (!next.includes(s.program)) { s.program = next[0]; s.phase = 'rampup'; s.rampWeek = 'Week 1'; s.rampDayIdx = 0; }
+              await Storage.adminSetUserData(hash, 'state', s);
+              if (isSelf) { state = s; await Storage.set('state', state); }
+              await loadAdminData();
+            }
+          }, `${on ? '\u2713' : '+'} ${l}`);
+        }),
+      ),
+    ),
+
+    // Phase override
+    el('div', { cls: 'admin-section' },
+      el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Phase & Week'),
+      el('div', { css: 'display:flex;gap:6px;flex-wrap:wrap' },
+        ...['rampup', 'ppl'].map(p =>
+          el('button', {
+            cls: `btn-ghost ${st.phase === p ? '' : 'muted'}`,
+            css: `font-size:12px;padding:8px 12px${st.phase === p ? ';border-color:var(--green);color:var(--green)' : ''}`,
+            onclick: async () => {
+              const s = { ...st, phase: p, rampDayIdx: 0 };
+              if (p === 'ppl') { s.mesoWeek = 1; s.pplIdx = 0; }
+              if (p === 'rampup') { s.rampWeek = 'Week 1'; s.rampDayIdx = 0; }
+              await Storage.adminSetUserData(hash, 'state', s);
+              if (isSelf) { state = s; await Storage.set('state', state); }
+              await loadAdminData();
+            }
+          }, p === 'rampup' ? 'Ramp-Up' : 'Full PPL')),
+        st.phase === 'ppl' ? el('div', { css: 'display:flex;gap:4px;width:100%;margin-top:4px' },
+          ...[1,2,3,4].map(w => el('button', {
+            cls: `btn-sm ${st.mesoWeek === w ? 'green' : ''}`,
+            css: 'font-size:11px;flex:1',
+            onclick: async () => {
+              const s = { ...st, mesoWeek: w };
+              await Storage.adminSetUserData(hash, 'state', s);
+              if (isSelf) { state = s; await Storage.set('state', state); }
+              await loadAdminData();
+            }
+          }, w === 4 ? 'Deload' : `W${w}`)),
+        ) : null,
+      ),
+    ),
+
+    // Units
+    el('div', { cls: 'admin-section' },
+      el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Units'),
+      el('div', { css: 'display:flex;gap:6px' },
+        ...['lbs','kg'].map(u => el('button', {
+          cls: `btn-sm ${(st.units || 'lbs') === u ? 'green' : ''}`,
+          css: 'font-size:11px',
+          onclick: async () => {
+            const s = { ...st, units: u };
+            await Storage.adminSetUserData(hash, 'state', s);
+            if (isSelf) { state = s; await Storage.set('state', state); }
+            await loadAdminData();
+          }
+        }, u.toUpperCase()))),
+    ),
+
+    // Danger zone
+    el('div', { cls: 'admin-section', css: 'border-top:1px solid rgba(239,68,68,.3);padding-top:10px;margin-top:4px' },
+      el('div', { cls: 'label', css: 'margin-bottom:6px;color:#ef4444' }, 'Danger Zone'),
+      el('div', { css: 'display:flex;gap:8px' },
+        el('button', { cls: 'btn-sm red', onclick: () => {
+          modal = {
+            title: `Reset ${user.pin?.slice(0,2)}/${user.pin?.slice(2,4)}/${user.pin?.slice(4)}?`,
+            message: 'Permanently deletes ALL workout data, history, and body weights for this user.',
+            onConfirm: async () => {
+              await Storage.adminResetUser(hash);
+              if (isSelf) {
+                state = { ...DEFAULT_STATE }; history = []; bodyWeights = [];
+                await Storage.set('state', state);
+                await Storage.set('history', history);
+                await Storage.set('bodyWeights', bodyWeights);
+              }
+              modal = null; await loadAdminData();
+            }
+          }; render();
+        }}, 'Reset All Data'),
+        el('button', { cls: 'btn-sm', onclick: () => {
+          modal = {
+            title: 'Reset Progress Only?',
+            message: 'Resets phase, week, and day back to start. Keeps workout history.',
+            onConfirm: async () => {
+              const s = { ...st, phase: 'rampup', rampWeek: 'Week 1', rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, fatigueFlags: 0 };
+              await Storage.adminSetUserData(hash, 'state', s);
+              if (isSelf) { state = s; await Storage.set('state', state); }
+              modal = null; await loadAdminData();
+            }
+          }; render();
+        }}, 'Reset Progress'),
+      ),
+    ),
   );
 }
 
@@ -1420,7 +1678,8 @@ function render() {
   app.innerHTML = '';
   const screens = {
     login: renderLogin, home: renderHome, workout: renderWorkout,
-    history: renderHistory, progress: renderProgress, settings: renderSettings
+    history: renderHistory, progress: renderProgress, settings: renderSettings,
+    admin: renderAdmin,
   };
   const fn = screens[screen];
   if (fn) app.appendChild(fn());
