@@ -186,8 +186,8 @@ const Storage = (() => {
           reg[hash] = { pin };
         }
       } catch {}
-      // 2. Firebase registry (may fail if rules expired)
       if (db) {
+        // 2. Firebase registry (may fail if rules expired)
         try {
           const snap = await db.ref('registry').once('value');
           const fbReg = snap.val() || {};
@@ -195,6 +195,17 @@ const Storage = (() => {
             reg[hash] = { ...(reg[hash] || {}), ...data };
           }
         } catch(e) { console.warn('Firebase registry read failed:', e); }
+        // 3. Scan Firebase users/ path directly for _meta entries
+        try {
+          const usersSnap = await db.ref('users').once('value');
+          const allUsers = usersSnap.val() || {};
+          for (const [hash, userData] of Object.entries(allUsers)) {
+            if (!reg[hash]) reg[hash] = {};
+            if (userData?._meta) {
+              reg[hash] = { ...reg[hash], ...userData._meta };
+            }
+          }
+        } catch(e) { console.warn('Firebase users scan failed:', e); }
       }
       return reg;
     },
@@ -226,7 +237,7 @@ const Storage = (() => {
 
     // Admin: delete all data for a user
     async adminResetUser(userHash) {
-      const DATA_KEYS = ['state', 'history', 'bodyWeights', '_meta'];
+      const DATA_KEYS = ['state', 'history', 'bodyWeights', 'measurements', '_meta'];
       for (const k of DATA_KEYS) {
         try { localStorage.removeItem(`ht-${userHash}-${k}`); } catch {}
       }

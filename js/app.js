@@ -15,6 +15,7 @@ let expandedWarmup = {};
 let supersets = [], restPauseExercises = {};
 let editingEntryId = null;
 let showMeasureTrends = false;
+let expandedPRInput = {};
 let elapsedInterval = null;
 let prToasts = [];
 let deferredPrompt = null, installDismissed = false;
@@ -47,6 +48,7 @@ async function loadData() {
   if (!state.units) state.units = 'lbs';
   if (!state.allowedPrograms) state.allowedPrograms = ['standard', 'glute-focus'];
   if (!state.goals) state.goals = { targetWeight: 0, lifts: {} };
+  if (!state.manualPRs) state.manualPRs = {};
   history = await Storage.get('history', []);
   bodyWeights = await Storage.get('bodyWeights', []);
   measurements = await Storage.get('measurements', []);
@@ -181,7 +183,16 @@ function getLastForEx(name) {
 function getPR(name) {
   let best = 0;
   for (const w of history) { const ex = w.exercises?.find(e => e.name === name); if (ex) for (const s of (ex.sets||[])) { const wt = parseFloat(s.weight)||0; if (wt > best) best = wt; } }
+  const manual = state.manualPRs?.[name];
+  if (manual?.weight && parseFloat(manual.weight) > best) best = parseFloat(manual.weight);
   return best;
+}
+function getManualPR(name) { return state.manualPRs?.[name] || null; }
+async function setManualPR(name, weight, e1rm) {
+  if (!state.manualPRs) state.manualPRs = {};
+  state.manualPRs[name] = { weight: parseFloat(weight) || 0, e1rm: parseFloat(e1rm) || 0, date: new Date().toISOString().split('T')[0] };
+  await Storage.set('state', state);
+  render();
 }
 function shouldIncrease(ex, rir) {
   if (!ex?.sets?.length) return false;
@@ -1263,25 +1274,56 @@ function renderProgress() {
         const best = ex?.sets?.reduce((b,s) => (parseFloat(s.weight)||0) > (parseFloat(b.weight)||0) ? s : b, {weight:'0'});
         return { date: fmtDate(w.date), weight: parseFloat(best?.weight)||0 };
       });
-      if (!data.length) return null;
-      const mx = Math.max(...data.map(d => d.weight),1), pr = Math.max(...data.map(d => d.weight));
+      const pr = getPR(name);
+      const manualPr = getManualPR(name);
+      const bestE1rm = (() => {
+        let best = manualPr?.e1rm || 0;
+        for (const w of history) { const ex = w.exercises?.find(e => e.name===name); if (ex) for (const s of (ex.sets||[])) { const rm = calc1RM(s.weight, s.reps); if (rm > best) best = rm; } }
+        return best;
+      })();
+      const mx = data.length ? Math.max(...data.map(d => d.weight), 1) : 1;
+      const prInputId = `pr-input-${name.replace(/\s/g, '-')}`;
+      const e1rmInputId = `e1rm-input-${name.replace(/\s/g, '-')}`;
       return el('div', { cls: 'card' },
-        el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px' },
+        el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px' },
           el('span', { css: 'font-size:14px;font-weight:700;color:var(--white)' }, name),
-          el('span', { css: 'font-size:12px;color:var(--gold);font-weight:700;font-family:var(--mono)' }, `PR: ${fmtW(pr)}`)),
-        el('div', { cls: 'bar-chart' }, ...data.map(d => {
-          const isPR = d.weight===pr && d.weight>0;
+          el('div', { css: 'display:flex;gap:8px;align-items:center' },
+            el('span', { css: 'font-size:12px;color:var(--gold);font-weight:700;font-family:var(--mono)' }, `PR: ${pr ? fmtW(pr) : '--'}`),
+            el('button', { cls: 'btn-sm', css: 'font-size:10px;padding:3px 8px', onclick: e2 => {
+              e2.stopPropagation(); expandedPRInput[name] = !expandedPRInput[name]; render();
+            }}, expandedPRInput[name] ? '\u2715' : '\u270E'),
+          ),
+        ),
+        bestE1rm > 0 ? el('div', { css: 'font-size:10px;color:var(--dim);font-family:var(--mono);margin-bottom:6px' },
+          `Est 1RM: ${fmtW(bestE1rm)}${manualPr?.date ? ` \u2022 Manual: ${manualPr.date}` : ''}`
+        ) : null,
+        expandedPRInput[name] ? el('div', { css: 'display:flex;gap:6px;align-items:center;margin-bottom:8px;padding:8px;background:var(--input-bg);border-radius:8px' },
+          el('div', { css: 'flex:1' },
+            el('div', { css: 'font-size:9px;color:var(--dim);margin-bottom:2px' }, `Weight (${unitLabel()})`),
+            el('input', { type: 'number', inputmode: 'decimal', cls: 'measure-input', css: 'font-size:13px;padding:6px',
+              id: prInputId, placeholder: pr ? String(pr) : '--', value: manualPr?.weight || '' }),
+          ),
+          el('div', { css: 'flex:1' },
+            el('div', { css: 'font-size:9px;color:var(--dim);margin-bottom:2px' }, 'Est 1RM'),
+            el('input', { type: 'number', inputmode: 'decimal', cls: 'measure-input', css: 'font-size:13px;padding:6px',
+              id: e1rmInputId, placeholder: bestE1rm ? String(Math.round(bestE1rm)) : '--', value: manualPr?.e1rm || '' }),
+          ),
+          el('button', { cls: 'btn-sm green', css: 'align-self:flex-end;padding:6px 12px', onclick: () => {
+            const w = document.getElementById(prInputId)?.value;
+            const rm = document.getElementById(e1rmInputId)?.value;
+            if (w || rm) setManualPR(name, w, rm);
+          }}, 'Save'),
+        ) : null,
+        data.length ? el('div', { cls: 'bar-chart' }, ...data.map(d => {
+          const isPR = d.weight === pr && d.weight > 0;
           return el('div', { cls: 'bar-col' },
             el('div', { cls: `bar-val ${isPR?'pr':''}` }, d.weight||''),
             el('div', { cls: `bar ${isPR?'pr':''}`, css: `height:${(d.weight/mx)*65}px` }),
             el('div', { cls: 'bar-date' }, d.date.split(', ')[0]?.split(' ').slice(1).join(' ')));
-        })),
+        })) : el('div', { css: 'font-size:12px;color:var(--dim);text-align:center;padding:10px 0' }, 'No data yet \u2014 log a workout or enter a PR above'),
       );
     }).filter(Boolean),
 
-    !history.some(w => w.exercises?.some(e => curProgram().compounds.includes(e.name)))
-      ? el('div', { cls: 'card', css: 'text-align:center;margin-top:20px' }, el('p', { css: 'color:var(--dim)' }, 'Log workouts to track compound lifts.'))
-      : null,
 
     // Weekly volume
     Object.keys(vol).length ? el('div', { cls: 'card full-width' },
