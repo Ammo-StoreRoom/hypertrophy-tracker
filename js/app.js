@@ -42,6 +42,8 @@ async function init() {
 }
 
 async function loadData() {
+  // Ensure we don't keep listeners from a previous login/session
+  Storage.unlisten();
   state = await Storage.get('state', { ...DEFAULT_STATE });
   if (state.rampDayIdx === undefined) state.rampDayIdx = 0;
   if (!state.program) state.program = 'standard';
@@ -60,6 +62,14 @@ async function loadData() {
   });
   Storage.listen('history', val => {
     if (screen !== 'workout') { history = val || []; render(); }
+  });
+  Storage.listen('bodyWeights', val => {
+    bodyWeights = Array.isArray(val) ? val : [];
+    if (screen !== 'workout') render();
+  });
+  Storage.listen('measurements', val => {
+    measurements = Array.isArray(val) ? val : [];
+    if (screen !== 'workout') render();
   });
 }
 
