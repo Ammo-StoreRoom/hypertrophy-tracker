@@ -13,7 +13,13 @@ async function init() {
     render();
     return;
   }
-  await loadData();
+  try {
+    await loadData();
+  } catch (e) {
+    console.error('Init failed, showing login:', e);
+    screen = 'login';
+    render();
+  }
 }
 
 async function loadData() {

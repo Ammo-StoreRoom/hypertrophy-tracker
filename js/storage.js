@@ -18,6 +18,10 @@ const Storage = (() => {
 
   function initFirebase() {
     if (typeof firebase === 'undefined') return false;
+    const cfg = typeof FIREBASE_CONFIG !== 'undefined' && FIREBASE_CONFIG;
+    if (!cfg || !cfg.apiKey || cfg.apiKey.includes('YOUR_') || !cfg.databaseURL || cfg.databaseURL.includes('YOUR_')) {
+      return false; // Skip Firebase when config is placeholder — use local only
+    }
     try {
       if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
       db = firebase.database();
@@ -66,24 +70,27 @@ const Storage = (() => {
       // Always read local first (fast)
       const local = localGet(key, fallback);
 
-      // Try to get from Firebase
+      // Try to get from Firebase with timeout so we never hang on Loading
       if (db && userPin) {
+        const timeoutMs = 8000;
         try {
-          const snap = await db.ref(getPath(key)).once('value');
+          const snap = await Promise.race([
+            db.ref(getPath(key)).once('value'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
+          ]);
           const remote = snap.val();
           if (remote !== null) {
-            // Remote wins — merge if it's newer
             localSet(key, remote);
             return remote;
           } else {
-            // Local has data but remote doesn't — push local up
             if (local !== fallback) {
               db.ref(getPath(key)).set(local).catch(() => {});
             }
             return local;
           }
         } catch(e) {
-          console.warn('Firebase read failed, using local:', e);
+          if (e?.message === 'timeout') console.warn('Firebase read timed out, using local');
+          else console.warn('Firebase read failed, using local:', e);
           return local;
         }
       }
