@@ -14,6 +14,8 @@ let expandedPlateCalc = {};
 let expandedWarmup = {};
 let supersets = [], restPauseExercises = {};
 let editingEntryId = null;
+let showMeasureTrends = false;
+let elapsedInterval = null;
 let prToasts = [];
 let deferredPrompt = null, installDismissed = false;
 let isOnline = navigator.onLine;
@@ -236,7 +238,8 @@ function getProgression(exName) {
   if (!last?.sets?.length) return null;
   if (shouldIncrease(last, getRIR())) {
     const maxW = Math.max(...last.sets.map(s => parseFloat(s.weight) || 0));
-    return maxW > 0 ? maxW + 5 : null;
+    const increment = (state.units === 'kg') ? 2.5 : 5;
+    return maxW > 0 ? maxW + increment : null;
   }
   return null;
 }
@@ -355,6 +358,7 @@ function startRest(secs) {
 
 function stopRest() {
   if (restInterval) clearInterval(restInterval);
+  if (elapsedInterval) { clearInterval(elapsedInterval); elapsedInterval = null; }
   restTimer = 0; restInterval = null; restEndTime = null; render();
 }
 
@@ -844,6 +848,10 @@ function renderHome() {
       el('button', { cls: 'btn-sm', onclick: () => { installDismissed = true; render(); } }, '\u2715'),
     ) : null,
 
+    getRecoveryStatus() === 'warn' ? el('div', { cls: 'recovery-banner recovery-warn', css: 'margin:10px 14px' },
+      el('span', null, '\u26A0\uFE0F Low recovery \u2014 take it easy today'),
+    ) : null,
+
     (state.fatigueFlags || 0) >= 2 ? el('div', { cls: 'fatigue-banner' },
       el('span', null, 'Fatigue detected \u2014 consider an early deload'),
       el('button', { cls: 'btn-sm', css: 'background:rgba(255,255,255,.2);color:#fff', onclick: async () => {
@@ -861,7 +869,68 @@ function renderHome() {
     (state.longestStreak || 0) > 0 ? el('div', { css: 'text-align:center;font-size:10px;color:var(--dim);margin-top:2px;padding:0 14px' },
       `Longest streak: ${state.longestStreak} workouts`) : null,
 
+    // Heatmap
+    history.length > 0 ? (() => {
+      const workoutDates = {};
+      for (const h2 of history) { const d = new Date(h2.date).toISOString().split('T')[0]; workoutDates[d] = (workoutDates[d] || 0) + 1; }
+      const today2 = new Date(), todayStr = today2.toISOString().split('T')[0];
+      const startDate = new Date(today2); startDate.setDate(startDate.getDate() - 12 * 7 - startDate.getDay());
+      const heatCells = [];
+      for (let i = 0; i < 12 * 7; i++) {
+        const d = new Date(startDate); d.setDate(d.getDate() + i);
+        const ds = d.toISOString().split('T')[0], count = workoutDates[ds] || 0;
+        const lvl = count >= 2 ? 'l3' : count === 1 ? 'l2' : '';
+        heatCells.push(el('div', { cls: `heatmap-cell ${lvl} ${ds === todayStr ? 'today' : ''}`, css: d > today2 ? 'opacity:.3' : '', title: ds }));
+      }
+      return el('div', { cls: 'card', css: 'margin:10px 14px' },
+        el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Activity (12 weeks)'),
+        el('div', { css: 'display:flex' },
+          el('div', { cls: 'heatmap-labels' }, ...['S','M','T','W','T','F','S'].map(d => el('span', null, d))),
+          el('div', { cls: 'heatmap-grid' }, ...heatCells),
+        ),
+      );
+    })() : null,
+
     el('div', { cls: 'home-grid' },
+      // Your Week summary
+      (() => {
+        const now = new Date(), weekStart = new Date(now);
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+        const wkStr = weekStart.toISOString().split('T')[0];
+        const wkWorkouts = history.filter(h2 => h2.date >= wkStr);
+        const wkSets = wkWorkouts.reduce((s, w) => s + (w.exercises || []).reduce((s2, e) => s2 + (e.sets || []).filter(st => st.weight && st.reps).length, 0), 0);
+        const wkBW = bodyWeights.filter(b => b.date >= wkStr);
+        const wkSleep = wkBW.filter(b => b.sleep);
+        const avgSl = wkSleep.length ? (wkSleep.reduce((s, b) => s + b.sleep, 0) / wkSleep.length).toFixed(1) : '--';
+        const wkWater = wkBW.filter(b => (b.water || 0) >= 6).length;
+        let bestLift = '', bestE1RM = 0;
+        for (const w of wkWorkouts) for (const ex of (w.exercises || [])) for (const s of (ex.sets || [])) {
+          const rm = calc1RM(s.weight, s.reps);
+          if (rm > bestE1RM) { bestE1RM = rm; bestLift = ex.name; }
+        }
+        return el('div', { cls: 'card full-width' },
+          el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Your Week'),
+          el('div', { cls: 'health-stat-row' },
+            el('div', { cls: 'health-stat' },
+              el('div', { cls: 'health-stat-val accent' }, String(wkWorkouts.length)),
+              el('div', { cls: 'health-stat-label' }, 'Workouts'),
+            ),
+            el('div', { cls: 'health-stat' },
+              el('div', { cls: 'health-stat-val' }, String(wkSets)),
+              el('div', { cls: 'health-stat-label' }, 'Sets'),
+            ),
+            el('div', { cls: 'health-stat' },
+              el('div', { css: 'font-size:18px;font-weight:800;font-family:var(--mono);color:var(--purple)' }, avgSl),
+              el('div', { cls: 'health-stat-label' }, 'Avg Sleep'),
+            ),
+          ),
+          el('div', { css: 'display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:6px' },
+            el('span', null, `Water: ${wkWater}/${Math.min(now.getDay() + 1, 7)} days`),
+            bestLift ? el('span', null, `Best: ${bestLift} ${fmtW(bestE1RM)} e1RM`) : null,
+          ),
+        );
+      })(),
+
       el('div', { cls: 'card', css: 'display:flex;justify-content:space-between;align-items:center' },
         el('div', null,
           el('div', { css: 'display:flex;gap:8px;align-items:center;margin-bottom:4px' },
@@ -894,13 +963,28 @@ function renderHome() {
 
 function renderWorkout() {
   const exercises = workoutExercises;
-  const elapsed = workoutStart ? Math.floor((Date.now() - workoutStart) / 60000) : 0;
+  const elapsedSec = workoutStart ? Math.floor((Date.now() - workoutStart) / 1000) : 0;
+  const elapsedMin = Math.floor(elapsedSec / 60);
+  const elapsedRemSec = elapsedSec % 60;
+  const elapsedStr = `${String(elapsedMin).padStart(2, '0')}:${String(elapsedRemSec).padStart(2, '0')}`;
+
+  if (!elapsedInterval && workoutStart) {
+    elapsedInterval = setInterval(() => {
+      const timerEl = document.getElementById('elapsed-timer');
+      if (!timerEl || screen !== 'workout') { clearInterval(elapsedInterval); elapsedInterval = null; return; }
+      const sec = Math.floor((Date.now() - workoutStart) / 1000);
+      timerEl.textContent = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+    }, 1000);
+  }
 
   return el('div', { cls: 'screen' }, renderModal(),
     !isOnline ? el('div', { cls: 'offline-banner' }, 'Offline \u2014 using local data') : null,
     el('div', { cls: 'header workout-header' },
       el('div', { cls: 'header-row' },
-        el('div', null, el('h1', null, activeDay), el('div', { cls: 'sub' }, `${editingEntryId ? 'EDITING \u2022 ' : ''}Target: ${getRIR()} \u2022 ${elapsed}min`)),
+        el('div', null,
+          el('h1', { css: 'display:flex;align-items:center;gap:10px' }, activeDay,
+            el('span', { id: 'elapsed-timer', cls: 'elapsed-timer' }, elapsedStr)),
+          el('div', { cls: 'sub' }, `${editingEntryId ? 'EDITING \u2022 ' : ''}Target: ${getRIR()}`)),
         el('button', { cls: 'btn-sm red', onclick: () => {
           modal = { title: 'Abandon Workout?', message: 'Your logged sets will be lost.',
             onConfirm: () => { activeDay=null; stopRest(); screen='home'; modal=null; render(); } }; render();
@@ -955,7 +1039,14 @@ function renderWorkout() {
               })(),
               EXERCISE_DEMOS[ex.name] ? el('a', { href: EXERCISE_DEMOS[ex.name], target: '_blank', rel: 'noopener',
                 cls: 'demo-link', onclick: e => e.stopPropagation() }, '\u24D8') : null,
-              prog ? el('span', { cls: 'prog-tag' }, `\u2191 Try ${fmtW(prog)}`) : null,
+              prog ? el('button', { cls: 'prog-tag prog-nudge', onclick: e => {
+                e.stopPropagation();
+                for (let si = 0; si < ex.sets; si++) {
+                  if (!inputs[`${ei}-${si}`]) inputs[`${ei}-${si}`] = {};
+                  if (!inputs[`${ei}-${si}`].weight) inputs[`${ei}-${si}`].weight = String(prog);
+                }
+                render();
+              }}, `\u2191 ${fmtW(prog)} ${unitLabel()} \u2014 tap to apply`) : null,
             ),
             el('div', { css: 'display:flex;gap:6px;align-items:center;font-size:11px;color:var(--dim);margin-top:1px' },
               `${ex.sets}x${ex.reps} \u2022 Rest ${ex.rest}s`,
@@ -1283,6 +1374,19 @@ function renderProgress() {
   );
 }
 
+// ========== RECOVERY EVALUATION ==========
+function getRecoveryStatus() {
+  const last3 = bodyWeights.slice(-3);
+  const todayH = getTodayHealth();
+  const poorSleepDays = last3.filter(b => b.sleep && b.sleep < 6).length;
+  const lowReadiness = todayH.readiness > 0 && todayH.readiness <= 2;
+  const goodReadiness = todayH.readiness >= 4;
+  const goodSleep = todayH.sleep >= 7;
+  if (lowReadiness || poorSleepDays >= 2) return 'warn';
+  if (goodReadiness && goodSleep) return 'good';
+  return null;
+}
+
 // ========== HEALTH TAB ==========
 function todayHealthKey() { return new Date().toISOString().split('T')[0]; }
 
@@ -1351,8 +1455,17 @@ function renderHealth() {
 
   const waterTarget = 8;
 
+  const recovery = getRecoveryStatus();
+
   return el('div', { cls: 'screen screen-grid' }, renderModal(),
     el('div', { cls: 'header' }, el('h1', null, 'HEALTH'), el('div', { cls: 'sub' }, 'Body, sleep & wellness')),
+
+    // Recovery banner
+    recovery === 'warn' ? el('div', { cls: 'recovery-banner recovery-warn' },
+      el('span', null, '\u26A0\uFE0F Low recovery \u2014 consider lighter volume or a rest day'),
+    ) : recovery === 'good' ? el('div', { cls: 'recovery-banner recovery-good' },
+      el('span', null, '\u2705 Good recovery \u2014 ready to push today'),
+    ) : null,
 
     // Quick stats row
     el('div', { cls: 'card full-width' },
@@ -1465,6 +1578,28 @@ function renderHealth() {
           );
         }),
       ),
+      measurements.length >= 3 ? el('div', { css: 'margin-top:10px' },
+        el('button', { cls: 'btn-sm blue', css: 'margin-bottom:8px', onclick: () => { showMeasureTrends = !showMeasureTrends; render(); } },
+          showMeasureTrends ? 'Hide Trends' : 'Show Trends'),
+        showMeasureTrends ? el('div', { cls: 'measure-grid', css: 'gap:12px' },
+          ...MEASURE_FIELDS.filter(f => measurements.filter(m => m[f.key]).length >= 3).map(f => {
+            const pts = measurements.filter(m => m[f.key]).slice(-10);
+            const vals = pts.map(m => m[f.key]);
+            const mx = Math.max(...vals), mn = Math.min(...vals), rng = mx - mn || 1;
+            const delta = vals.length >= 2 ? vals[vals.length - 1] - vals[vals.length - 2] : 0;
+            return el('div', null,
+              el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:3px' },
+                el('span', { cls: 'measure-label' }, f.label),
+                el('span', { css: `font-size:10px;font-weight:700;font-family:var(--mono);color:${delta > 0 ? 'var(--red)' : delta < 0 ? 'var(--green)' : 'var(--dim)'}` },
+                  delta !== 0 ? `${delta > 0 ? '+' : ''}${delta.toFixed(1)}` : '--'),
+              ),
+              el('div', { cls: 'measure-spark' },
+                ...vals.map(v => el('div', { cls: 'measure-spark-bar', css: `height:${Math.max(((v - mn) / rng) * 28 + 4, 4)}px` })),
+              ),
+            );
+          }),
+        ) : null,
+      ) : null,
     ),
 
     // Goals
@@ -1679,9 +1814,11 @@ async function loadAdminData() {
     for (const hash of Object.keys(reg)) {
       const st = await Storage.adminGetUserData(hash, 'state');
       const hist = await Storage.adminGetUserData(hash, 'history');
+      const bw = await Storage.adminGetUserData(hash, 'bodyWeights');
       reg[hash].state = st || {};
       reg[hash].historyCount = Array.isArray(hist) ? hist.length : 0;
       reg[hash].lastWorkout = Array.isArray(hist) && hist.length ? hist[0].date : null;
+      reg[hash].bodyWeights = Array.isArray(bw) ? bw : [];
       if (!reg[hash].program && st?.program) reg[hash].program = st.program;
       if (!reg[hash].phase && st?.phase) reg[hash].phase = st.phase;
     }
@@ -1773,10 +1910,40 @@ function renderAdminUserExpanded(hash, user) {
   const allowed = st.allowedPrograms || ['standard', 'glute-focus'];
   const isSelf = user.pin === Storage.getPin();
 
+  const bws = user.bodyWeights || [];
+  const latestBW = bws.filter(b => b.weight).slice(-1)[0];
+  const last7 = bws.slice(-7);
+  const avgSleepAdmin = last7.filter(b => b.sleep).length ? (last7.filter(b => b.sleep).reduce((s, b) => s + b.sleep, 0) / last7.filter(b => b.sleep).length).toFixed(1) : null;
+  const lastReadiness = last7.filter(b => b.readiness).slice(-1)[0]?.readiness;
+  const waterDays = last7.filter(b => (b.water || 0) >= 6).length;
+
   return el('div', { cls: 'admin-expanded' },
     el('div', { css: 'font-size:11px;color:var(--dim);margin-bottom:12px' },
       `Last active: ${user.lastActive || 'Unknown'}`,
       user.lastWorkout ? ` \u2022 Last workout: ${fmtDate(user.lastWorkout)}` : ''),
+
+    // Health snapshot
+    (latestBW || avgSleepAdmin || lastReadiness) ? el('div', { cls: 'admin-section' },
+      el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Health Snapshot'),
+      el('div', { css: 'display:flex;gap:10px;flex-wrap:wrap;font-size:11px' },
+        latestBW ? el('div', { css: 'background:var(--input-bg);border-radius:6px;padding:6px 10px' },
+          el('span', { css: 'color:var(--dim)' }, 'Weight: '),
+          el('span', { css: 'color:var(--white);font-weight:700;font-family:var(--mono)' }, String(latestBW.weight)),
+        ) : null,
+        avgSleepAdmin ? el('div', { css: 'background:var(--input-bg);border-radius:6px;padding:6px 10px' },
+          el('span', { css: 'color:var(--dim)' }, 'Sleep: '),
+          el('span', { css: 'color:var(--purple);font-weight:700;font-family:var(--mono)' }, `${avgSleepAdmin}h avg`),
+        ) : null,
+        lastReadiness ? el('div', { css: 'background:var(--input-bg);border-radius:6px;padding:6px 10px' },
+          el('span', { css: 'color:var(--dim)' }, 'Readiness: '),
+          el('span', null, ['', '\u{1F534}', '\u{1F7E0}', '\u{1F7E1}', '\u{1F7E2}', '\u{1F7E2}'][lastReadiness] || '?'),
+        ) : null,
+        el('div', { css: 'background:var(--input-bg);border-radius:6px;padding:6px 10px' },
+          el('span', { css: 'color:var(--dim)' }, 'Water: '),
+          el('span', { css: 'color:var(--blue);font-weight:700;font-family:var(--mono)' }, `${waterDays}/7 days`),
+        ),
+      ),
+    ) : null,
 
     // Active program
     el('div', { cls: 'admin-section' },

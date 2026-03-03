@@ -181,7 +181,9 @@ input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appear
 .undo-toast span{font-size:13px;color:var(--white);font-weight:600}
 
 /* ========== PROGRESSION TAG ========== */
-.prog-tag{display:inline-block;background:rgba(34,197,94,.15);color:var(--green);font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px;margin-left:6px}
+.prog-tag{display:inline-block;background:rgba(34,197,94,.15);color:var(--green);font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px;margin-left:6px;border:none;font-family:var(--font);cursor:pointer}
+.prog-nudge{padding:4px 10px;border:1px solid var(--green);border-radius:6px;font-size:11px;animation:fadeIn .3s;transition:transform .1s}
+.prog-nudge:active{transform:scale(.95)}
 .e1rm{font-size:10px;color:var(--dim);font-family:var(--mono);margin-top:2px}
 
 /* ========== VOLUME CHART ========== */
@@ -375,6 +377,8 @@ input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appear
 .measure-input{background:var(--input-bg);border:1px solid var(--muted);border-radius:6px;color:var(--white);padding:8px;font-size:14px;text-align:center;outline:none;font-family:var(--mono);width:100%;transition:border-color .2s}
 .measure-input:focus{border-color:var(--accent)}
 .measure-last{font-size:9px;color:var(--dim);text-align:center}
+.measure-spark{display:flex;align-items:flex-end;gap:2px;height:32px}
+.measure-spark-bar{flex:1;border-radius:2px 2px 0 0;background:linear-gradient(to top,var(--accent),rgba(233,69,96,.4));transition:height .3s}
 
 .goal-row{margin-bottom:10px}
 .goal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
@@ -387,6 +391,14 @@ input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appear
 .sleep-chart{display:flex;align-items:flex-end;gap:3px;height:50px}
 .sleep-bar{flex:1;border-radius:3px 3px 0 0;background:linear-gradient(to top,var(--purple),rgba(124,58,237,.4));transition:height .3s}
 .sleep-label{font-size:7px;color:var(--dim);text-align:center;margin-top:2px}
+
+/* ========== ELAPSED TIMER ========== */
+.elapsed-timer{font-size:13px;font-weight:600;font-family:var(--mono);color:var(--dim);background:var(--input-bg);border-radius:6px;padding:2px 8px;font-variant-numeric:tabular-nums;letter-spacing:.5px}
+
+/* ========== RECOVERY BANNERS ========== */
+.recovery-banner{border-radius:10px;padding:10px 14px;font-size:12px;font-weight:600;animation:slideDown .3s}
+.recovery-warn{background:linear-gradient(135deg,rgba(217,119,6,.15),rgba(234,88,12,.1));border:1px solid var(--orange);color:var(--orange)}
+.recovery-good{background:linear-gradient(135deg,rgba(34,197,94,.1),rgba(22,163,74,.06));border:1px solid var(--green);color:var(--green)}
 
 /* ========== FOCUS / ACCESSIBILITY ========== */
 button:focus-visible,input:focus-visible,.btn:focus-visible,.btn-ghost:focus-visible,.btn-sm:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
