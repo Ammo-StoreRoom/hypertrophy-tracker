@@ -135,3 +135,26 @@ const PPL = [
 
 const MESO_RIR = { 1: "3 RIR", 2: "2 RIR", 3: "1 RIR", 4: "DELOAD" };
 const COMPOUNDS = ["Barbell Bench Press","Barbell Back Squat","Overhead Press (BB)","Barbell Row (heavy)","Weighted Pull-Ups","Romanian Deadlift","Incline BB Bench","Front Squat (BB)"];
+
+const MUSCLE_GROUPS = {
+  "Chest": ["Barbell Bench Press","Incline DB Press","DB Bench Press","Cable Flye (low-high)","Cable Crossover","Incline BB Bench","Weighted Dips","Dips (BW to failure)","Landmine Press"],
+  "Back": ["Weighted Pull-Ups","Pull-Ups / Chin-Ups","Lat Pulldown (wide)","Lat Pulldown (V-bar)","Barbell Row (overhand)","Barbell Row (underhand)","Barbell Row (heavy)","DB Row (single arm)","Cable Row (V-bar)","Landmine Row","Cable Straight-Arm Pull"],
+  "Shoulders": ["Overhead Press (BB)","DB Lateral Raise","Cable Lateral Raise","Arnold Press (DB)","Cable Face Pull","Cable Reverse Flye"],
+  "Quads": ["Barbell Back Squat","Front Squat (BB)","Goblet Squat (DB)","Goblet Squat (pause)","Bulgarian Split Squat","Walking Lunges (BW)","Walking Lunges (DB)","Step-Ups (DB)"],
+  "Hamstrings": ["Romanian Deadlift","Stiff-Leg DL (DB)","Cable Pull-Through","BB Hip Thrust"],
+  "Calves": ["Standing Calf Raise","Seated Calf Raise","Single-Leg Calf Raise"],
+  "Biceps": ["Barbell Curl","Cable Hammer Curl","Cable Curl (bar)","Incline DB Curl"],
+  "Triceps": ["Cable Pushdown (rope)","Cable OH Tricep Ext"],
+};
+
+function getMuscleGroup(exName) {
+  for (const [group, exercises] of Object.entries(MUSCLE_GROUPS)) {
+    if (exercises.includes(exName)) return group;
+  }
+  return "Other";
+}
+
+function getAlternativeExercises(exName) {
+  const group = getMuscleGroup(exName);
+  return (MUSCLE_GROUPS[group] || []).filter(n => n !== exName);
+}
