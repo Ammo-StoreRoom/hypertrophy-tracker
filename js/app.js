@@ -17,7 +17,7 @@ let undoEntry = null, undoPrevState = null, undoTimeout = null;
 let theme = 'dark';
 let pullY = 0, pullActive = false, pullDist = 0;
 
-const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0 };
+const DEFAULT_STATE = { phase: "rampup", rampWeek: "Week 1", rampDayIdx: 0, mesoWeek: 1, pplIdx: 0, program: "standard" };
 
 // ========== INIT & AUTH ==========
 async function init() {
@@ -32,12 +32,13 @@ async function init() {
 async function loadData() {
   state = await Storage.get('state', { ...DEFAULT_STATE });
   if (state.rampDayIdx === undefined) state.rampDayIdx = 0;
+  if (!state.program) state.program = 'standard';
   history = await Storage.get('history', []);
   bodyWeights = await Storage.get('bodyWeights', []);
   screen = 'home'; activeDay = null; inputs = {}; workoutStart = null;
   render();
   Storage.listen('state', val => {
-    if (screen !== 'workout') { state = val; if (state.rampDayIdx === undefined) state.rampDayIdx = 0; render(); }
+    if (screen !== 'workout') { state = val; if (state.rampDayIdx === undefined) state.rampDayIdx = 0; if (!state.program) state.program = 'standard'; render(); }
   });
   Storage.listen('history', val => {
     if (screen !== 'workout') { history = val || []; render(); }
@@ -129,20 +130,24 @@ function getRIR() {
   if (state.phase === 'rampup') return state.rampWeek === 'Week 1' ? '4 RIR' : '2-3 RIR';
   return MESO_RIR[state.mesoWeek] || '3 RIR';
 }
+function curProgram() { return PROGRAMS[state.program] || PROGRAMS.standard; }
 function getExercises(day) {
-  if (state.phase === 'rampup') return RAMPUP[state.rampWeek]?.[day] || [];
-  return PPL.find(p => p.label === day)?.exercises || [];
+  const { rampup, ppl } = curProgram();
+  if (state.phase === 'rampup') return rampup[state.rampWeek]?.[day] || [];
+  return ppl.find(p => p.label === day)?.exercises || [];
 }
 function getDays() {
-  if (state.phase === 'rampup') return Object.keys(RAMPUP[state.rampWeek] || {});
-  return PPL.map(p => p.label);
+  const { rampup, ppl } = curProgram();
+  if (state.phase === 'rampup') return Object.keys(rampup[state.rampWeek] || {});
+  return ppl.map(p => p.label);
 }
 function getNextDay() {
+  const { rampup, ppl } = curProgram();
   if (state.phase === 'rampup') {
-    const days = Object.keys(RAMPUP[state.rampWeek] || {});
+    const days = Object.keys(rampup[state.rampWeek] || {});
     return days[state.rampDayIdx] || days[0];
   }
-  return PPL[state.pplIdx]?.label;
+  return ppl[state.pplIdx]?.label;
 }
 function getLastForEx(name) {
   for (const w of history) { const ex = w.exercises?.find(e => e.name === name); if (ex?.sets?.some(s => s.weight)) return ex; }
@@ -283,14 +288,16 @@ async function finishWorkout() {
   if (history.length > 200) history = history.slice(0, 200);
 
   if (state.phase === 'rampup') {
-    const days = Object.keys(RAMPUP[state.rampWeek]||{});
+    const { rampup } = curProgram();
+    const days = Object.keys(rampup[state.rampWeek]||{});
     const di = days.indexOf(activeDay);
     if (di >= days.length - 1) {
       if (state.rampWeek === 'Week 1') { state.rampWeek = 'Week 2'; state.rampDayIdx = 0; }
       else { state.phase = 'ppl'; state.mesoWeek = 1; state.pplIdx = 0; }
     } else { state.rampDayIdx = di + 1; }
   } else {
-    const ni = (state.pplIdx + 1) % 6;
+    const { ppl } = curProgram();
+    const ni = (state.pplIdx + 1) % ppl.length;
     state.pplIdx = ni;
     if (ni === 0) state.mesoWeek = state.mesoWeek >= 4 ? 1 : state.mesoWeek + 1;
   }
@@ -726,7 +733,7 @@ function renderProgress() {
     el('div', { cls: 'header' }, el('h1', null, 'PROGRESS'), el('div', { cls: 'sub' }, 'Lifts, volume & trends')),
 
     // Compound lift charts
-    ...COMPOUNDS.map(name => {
+    ...curProgram().compounds.map(name => {
       const data = history.filter(w => w.exercises?.some(e => e.name===name)).reverse().slice(-12).map(w => {
         const ex = w.exercises.find(e => e.name===name);
         const best = ex?.sets?.reduce((b,s) => (parseFloat(s.weight)||0) > (parseFloat(b.weight)||0) ? s : b, {weight:'0'});
@@ -748,7 +755,7 @@ function renderProgress() {
       );
     }).filter(Boolean),
 
-    !history.some(w => w.exercises?.some(e => COMPOUNDS.includes(e.name)))
+    !history.some(w => w.exercises?.some(e => curProgram().compounds.includes(e.name)))
       ? el('div', { cls: 'card', css: 'text-align:center;margin-top:20px' }, el('p', { css: 'color:var(--dim)' }, 'Log workouts to track compound lifts.'))
       : null,
 
@@ -826,6 +833,19 @@ function renderSettings() {
             : el('button', { cls: 'btn-ghost', onclick: async () => { await requestNotifPermission(); render(); } }, 'Enable Notifications'),
     ),
 
+    // Program
+    el('div', { cls: 'card' },
+      el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Workout Program'),
+      el('div', { css: 'display:flex;gap:8px;flex-wrap:wrap' },
+        ...[['standard','Standard PPL'],['glute-focus','Glute-Focus PPL']].map(([k,l]) =>
+          el('button', { cls: `btn-ghost ${state.program===k?'':'muted'}`,
+            css: state.program===k?'border-color:var(--accent);color:var(--accent)':null,
+            onclick: async () => { state.program=k; state.phase='rampup'; state.rampWeek='Week 1'; state.rampDayIdx=0; state.mesoWeek=1; state.pplIdx=0; await Storage.set('state',state); render(); } }, l)),
+      ),
+      el('div', { css: 'font-size:11px;color:var(--dim);margin-top:8px' },
+        state.program==='glute-focus' ? 'Lower-body & glute emphasis with extra hip thrust and RDL volume' : 'Balanced push/pull/legs with strength focus'),
+    ),
+
     // Phase
     el('div', { cls: 'card' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Program Phase'),
@@ -852,7 +872,7 @@ function renderSettings() {
     state.phase==='ppl' ? el('div', { cls: 'card' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Next Day'),
       el('div', { css: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px' },
-        ...PPL.map((p,i) => el('button', { cls: `btn-ghost ${state.pplIdx===i?'':'muted'}`,
+        ...curProgram().ppl.map((p,i) => el('button', { cls: `btn-ghost ${state.pplIdx===i?'':'muted'}`,
           css: `font-size:11px;padding:8px 4px${state.pplIdx===i?';border-color:var(--accent);color:var(--accent)':''}`,
           onclick: async () => { state.pplIdx=i; await Storage.set('state',state); render(); } }, p.label))),
     ) : null,
