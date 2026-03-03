@@ -733,11 +733,15 @@ function renderModal() {
   );
 }
 
+const NAV_ICONS = { home: '\uD83C\uDFE0', history: '\uD83D\uDCCB', progress: '\uD83D\uDCC8', settings: '\u2699\uFE0F' };
+const isDesktop = () => window.matchMedia('(min-width:900px)').matches;
+
 function renderNav() {
   return el('div', { cls: 'nav' },
     ...['home','history','progress','settings'].map(k =>
       el('button', { cls: screen === k ? 'active' : '', onclick: () => { if (screen !== 'workout') { screen = k; render(); } } },
-        k[0].toUpperCase() + k.slice(1))
+        el('span', { cls: 'nav-icon' }, NAV_ICONS[k]),
+        el('span', { cls: 'nav-label' }, k[0].toUpperCase() + k.slice(1)))
     ),
   );
 }
@@ -784,11 +788,11 @@ function renderHome() {
   const todayBW = bodyWeights.find(b => b.date === new Date().toISOString().split('T')[0]);
 
   return el('div', { cls: 'screen' }, renderModal(),
-    el('div', { id: 'pull-indicator', cls: 'pull-indicator', css: 'height:0;opacity:0;overflow:hidden' }),
+    el('div', { id: 'pull-indicator', cls: 'pull-indicator mobile-only', css: 'height:0;opacity:0;overflow:hidden' }),
     el('div', { cls: 'header' },
       el('div', { cls: 'header-row' },
         el('div', null,
-          el('h1', null, 'HYPERTROPHY TRACKER'),
+          el('h1', null, 'HYPERTROPHY TRACKER', el('span', { cls: 'platform-badge' }, 'WEB')),
           el('div', { cls: 'sub' }, state.phase === 'rampup' ? `Ramp-Up \u2022 ${state.rampWeek}` : `PPL \u2022 Mesocycle W${state.mesoWeek}`),
         ),
         el('div', { cls: `sync-dot ${isOnline ? '' : 'offline'}`, title: isOnline ? 'Synced' : 'Offline' }),
@@ -823,44 +827,46 @@ function renderHome() {
     (state.longestStreak || 0) > 0 ? el('div', { css: 'text-align:center;font-size:10px;color:var(--dim);margin-top:2px;padding:0 14px' },
       `Longest streak: ${state.longestStreak} workouts`) : null,
 
-    // Body weight
-    el('div', { cls: 'card' },
-      el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Body Weight'),
-      el('div', { cls: 'bw-row' },
-        el('input', { type: 'number', inputmode: 'decimal', cls: 'bw-input', placeholder: unitLabel(),
-          value: todayBW?.weight || '',
-          onchange: e => { const w = parseFloat(e.target.value); if (w > 0) logBodyWeight(w); }
-        }),
-        el('span', { css: 'font-size:12px;color:var(--dim)' }, `${unitLabel()} today`),
-        bodyWeights.length > 1 ? el('span', { css: 'font-size:12px;color:var(--dim);margin-left:auto' },
-          `Trend: ${bodyWeights.slice(-1)[0]?.weight || '-'} ${unitLabel()}`
-        ) : null,
-      ),
-    ),
-
-    el('div', { cls: 'card', css: 'display:flex;justify-content:space-between;align-items:center' },
-      el('div', null,
-        el('div', { css: 'display:flex;gap:8px;align-items:center;margin-bottom:4px' },
-          el('span', { cls: 'label' }, 'Phase'),
-          el('span', { cls: `badge ${state.phase==='rampup'?'badge-accent':'badge-green'}` }, state.phase==='rampup'?'RAMP-UP':'FULL PPL'),
+    el('div', { cls: 'home-grid' },
+      // Body weight
+      el('div', { cls: 'card' },
+        el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Body Weight'),
+        el('div', { cls: 'bw-row' },
+          el('input', { type: 'number', inputmode: 'decimal', cls: 'bw-input', placeholder: unitLabel(),
+            value: todayBW?.weight || '',
+            onchange: e => { const w = parseFloat(e.target.value); if (w > 0) logBodyWeight(w); }
+          }),
+          el('span', { css: 'font-size:12px;color:var(--dim)' }, `${unitLabel()} today`),
+          bodyWeights.length > 1 ? el('span', { css: 'font-size:12px;color:var(--dim);margin-left:auto' },
+            `Trend: ${bodyWeights.slice(-1)[0]?.weight || '-'} ${unitLabel()}`
+          ) : null,
         ),
-        el('div', { css: 'font-size:13px;color:var(--dim)' }, 'RIR Target: ', el('strong', { css: 'color:var(--accent)' }, getRIR())),
-        state.phase==='ppl' ? el('div', { css: 'font-size:13px;color:var(--dim)' }, `W${state.mesoWeek} \u2022 ${curProgram().ppl[state.pplIdx]?.day || ''}`) : null,
       ),
-    ),
 
-    el('div', { cls: 'card accent-border' },
-      el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Next Workout'),
-      el('div', { css: 'font-size:20px;font-weight:800;color:var(--white);margin-bottom:2px' }, next),
-      el('div', { css: 'font-size:12px;color:var(--dim);margin-bottom:14px' }, `${exCount} exercises`),
-      el('button', { cls: 'btn', onclick: () => startWorkout(next) }, 'START WORKOUT'),
-    ),
+      el('div', { cls: 'card', css: 'display:flex;justify-content:space-between;align-items:center' },
+        el('div', null,
+          el('div', { css: 'display:flex;gap:8px;align-items:center;margin-bottom:4px' },
+            el('span', { cls: 'label' }, 'Phase'),
+            el('span', { cls: `badge ${state.phase==='rampup'?'badge-accent':'badge-green'}` }, state.phase==='rampup'?'RAMP-UP':'FULL PPL'),
+          ),
+          el('div', { css: 'font-size:13px;color:var(--dim)' }, 'RIR Target: ', el('strong', { css: 'color:var(--accent)' }, getRIR())),
+          state.phase==='ppl' ? el('div', { css: 'font-size:13px;color:var(--dim)' }, `W${state.mesoWeek} \u2022 ${curProgram().ppl[state.pplIdx]?.day || ''}`) : null,
+        ),
+      ),
 
-    el('div', { cls: 'card' },
-      el('span', { cls: 'label', css: 'display:block;margin-bottom:10px' }, 'All Days'),
-      el('div', { cls: 'day-list' },
-        ...getDays().map(d => el('button', { cls: `btn-ghost day-btn ${d===next?'':'muted'}`, onclick: () => startWorkout(d) },
-          el('span', null, d), d===next ? el('span', { cls: 'next-tag' }, 'NEXT') : null)),
+      el('div', { cls: 'card accent-border full-width' },
+        el('div', { cls: 'label', css: 'margin-bottom:6px' }, 'Next Workout'),
+        el('div', { css: 'font-size:20px;font-weight:800;color:var(--white);margin-bottom:2px' }, next),
+        el('div', { css: 'font-size:12px;color:var(--dim);margin-bottom:14px' }, `${exCount} exercises`),
+        el('button', { cls: 'btn', onclick: () => startWorkout(next) }, 'START WORKOUT'),
+      ),
+
+      el('div', { cls: 'card full-width' },
+        el('span', { cls: 'label', css: 'display:block;margin-bottom:10px' }, 'All Days'),
+        el('div', { cls: 'day-list' },
+          ...getDays().map(d => el('button', { cls: `btn-ghost day-btn ${d===next?'':'muted'}`, onclick: () => startWorkout(d) },
+            el('span', null, d), d===next ? el('span', { cls: 'next-tag' }, 'NEXT') : null)),
+        ),
       ),
     ),
     renderNav(),
@@ -1092,7 +1098,7 @@ function renderHistory() {
 
     history.length === 0
       ? el('div', { cls: 'card', css: 'text-align:center;margin-top:20px' }, el('p', { css: 'color:var(--dim)' }, 'No workouts yet.'))
-      : el('div', null, ...history.map((entry, i) => {
+      : el('div', { cls: 'hist-grid' }, ...history.map((entry, i) => {
           const exp = expandedEntries[i];
           return el('div', { cls: 'card', css: 'cursor:pointer', onclick: () => { expandedEntries[i]=!expandedEntries[i]; render(); } },
             el('div', { css: 'display:flex;justify-content:space-between;align-items:center' },
@@ -1141,7 +1147,7 @@ function renderProgress() {
   const recentDurations = history.slice(0, 12).reverse();
   const maxDur = Math.max(...recentDurations.map(h => h.duration || 0), 1);
 
-  return el('div', { cls: 'screen' }, renderModal(),
+  return el('div', { cls: 'screen screen-grid' }, renderModal(),
     el('div', { cls: 'header' }, el('h1', null, 'PROGRESS'), el('div', { cls: 'sub' }, 'Lifts, volume & trends')),
 
     // Compound lift charts
@@ -1172,7 +1178,7 @@ function renderProgress() {
       : null,
 
     // Weekly volume
-    Object.keys(vol).length ? el('div', { cls: 'card' },
+    Object.keys(vol).length ? el('div', { cls: 'card full-width' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Weekly Volume (sets)'),
       ...Object.entries(vol).sort((a,b) => b[1].sets - a[1].sets).map(([group, data]) =>
         el('div', { cls: 'vol-item' },
@@ -1238,7 +1244,7 @@ function renderProgress() {
         return { name, pr, ratio: ratio.toFixed(2), level, color, pct: Math.min(100, Math.max(2, pct)) };
       }).filter(Boolean);
       if (!rows.length) return null;
-      return el('div', { cls: 'card' },
+      return el('div', { cls: 'card full-width' },
         el('div', { cls: 'label', css: 'margin-bottom:10px' }, `Strength Standards (${fmtW(bw)} BW)`),
         ...rows.map(r => el('div', { css: 'margin-bottom:8px' },
           el('div', { css: 'display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px' },
@@ -1279,7 +1285,7 @@ function renderProgress() {
 function renderSettings() {
   const notifStatus = !('Notification' in window) ? 'unsupported' : Notification.permission;
 
-  return el('div', { cls: 'screen' }, renderModal(),
+  return el('div', { cls: 'screen screen-grid' }, renderModal(),
     el('div', { cls: 'header' }, el('h1', null, 'SETTINGS'), el('div', { cls: 'sub' }, 'Program & preferences')),
 
     // Theme
@@ -1317,7 +1323,7 @@ function renderSettings() {
     ),
 
     // Program
-    el('div', { cls: 'card' },
+    el('div', { cls: 'card full-width' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Workout Program'),
       el('div', { css: 'display:flex;gap:8px;flex-wrap:wrap' },
         ...[['standard','Standard PPL'],['glute-focus','Glute-Focus PPL']].map(([k,l]) =>
@@ -1330,7 +1336,7 @@ function renderSettings() {
     ),
 
     // Phase
-    el('div', { cls: 'card' },
+    el('div', { cls: 'card full-width' },
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Program Phase'),
       el('div', { css: 'display:flex;gap:8px' },
         ...[['rampup','Ramp-Up'],['ppl','Full PPL']].map(([p,l]) =>
@@ -1368,7 +1374,7 @@ function renderSettings() {
     ) : null,
 
     // Custom exercises
-    el('div', { cls: 'card' },
+    el('div', { cls: 'card full-width' },
       el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px' },
         el('div', { cls: 'label' }, 'Custom Exercises'),
         el('button', { cls: 'btn-sm green', onclick: showAddCustomExercise }, '+ Add'),
@@ -1397,7 +1403,7 @@ function renderSettings() {
       el('div', { cls: 'label', css: 'margin-bottom:10px' }, 'Account'),
       el('button', { cls: 'btn-ghost muted', onclick: doLogout }, 'Log Out'),
     ),
-    el('div', { cls: 'card', css: 'border-color:#ef4444' },
+    el('div', { cls: 'card full-width', css: 'border-color:#ef4444' },
       el('div', { cls: 'label', css: 'margin-bottom:10px;color:#ef4444' }, 'Danger Zone'),
       el('button', { cls: 'btn btn-red', onclick: () => {
         modal = { title: 'Reset Everything?', message: 'Deletes ALL data on all devices permanently.',
