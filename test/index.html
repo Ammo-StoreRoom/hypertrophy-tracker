@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hypertrophy Tracker - Test Runner</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #0a0a0f;
+  color: #e4e4e7;
+  line-height: 1.6;
+}
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+header {
+  text-align: center;
+  padding: 40px 20px;
+  border-bottom: 1px solid #27272a;
+  margin-bottom: 30px;
+}
+header h1 {
+  margin: 0 0 10px;
+  font-size: 2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #E94560 0%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+header p {
+  margin: 0;
+  color: #71717a;
+  font-size: 1rem;
+}
+.controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 30px;
+  flex-wrap: wrap;
+}
+button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary {
+  background: linear-gradient(135deg, #E94560 0%, #d63a54 100%);
+  color: white;
+}
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(233, 69, 96, 0.3);
+}
+.btn-secondary {
+  background: #27272a;
+  color: #e4e4e7;
+  border: 1px solid #3f3f46;
+}
+.btn-secondary:hover:not(:disabled) {
+  background: #3f3f46;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 30px;
+}
+.stat-card {
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+}
+.stat-card.success {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+.stat-card.error {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+.stat-card.warning {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+.stat-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.stat-value.success { color: #22c55e; }
+.stat-value.error { color: #ef4444; }
+.stat-value.warning { color: #f59e0b; }
+.stat-value.info { color: #3b82f6; }
+.stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #71717a;
+  font-weight: 600;
+}
+.progress-bar {
+  height: 8px;
+  background: #27272a;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease, background 0.3s ease;
+}
+.progress-fill.success { background: #22c55e; }
+.progress-fill.error { background: #ef4444; }
+.suites {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.suite {
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.suite-header {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.suite-header:hover {
+  background: #1f1f23;
+}
+.suite-name {
+  font-weight: 600;
+  color: #e4e4e7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.suite-status {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 600;
+}
+.suite-status.pass {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+.suite-status.fail {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+.suite-status.pending {
+  background: #27272a;
+  color: #71717a;
+}
+.suite-tests {
+  display: none;
+  border-top: 1px solid #27272a;
+}
+.suite.expanded .suite-tests {
+  display: block;
+}
+.suite-toggle {
+  color: #71717a;
+  font-size: 0.875rem;
+  transition: transform 0.2s;
+}
+.suite.expanded .suite-toggle {
+  transform: rotate(180deg);
+}
+.test {
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #27272a;
+}
+.test:last-child {
+  border-bottom: none;
+}
+.test-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+.test.pass .test-icon {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+.test.fail .test-icon {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+.test.skip .test-icon {
+  background: #27272a;
+  color: #71717a;
+}
+.test-name {
+  flex: 1;
+  font-size: 0.875rem;
+}
+.test.pass .test-name {
+  color: #a1a1aa;
+}
+.test.fail .test-name {
+  color: #fca5a5;
+}
+.test-error {
+  font-size: 0.75rem;
+  color: #ef4444;
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.console-output {
+  background: #0f0f13;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 30px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.console-line {
+  padding: 2px 0;
+  color: #a1a1aa;
+}
+.console-line.error {
+  color: #ef4444;
+}
+.console-line.warn {
+  color: #f59e0b;
+}
+.console-line.info {
+  color: #3b82f6;
+}
+.console-line.success {
+  color: #22c55e;
+}
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #71717a;
+}
+.empty-state-icon {
+  font-size: 4rem;
+  margin-bottom: 16px;
+}
+.loading {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #27272a;
+  border-top-color: #E94560;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #27272a;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #71717a;
+}
+footer {
+  text-align: center;
+  padding: 40px 20px;
+  color: #52525b;
+  font-size: 0.875rem;
+  border-top: 1px solid #27272a;
+  margin-top: 40px;
+}
+@media (max-width: 600px) {
+  header h1 {
+    font-size: 1.5rem;
+  }
+  .stat-value {
+    font-size: 2rem;
+  }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>🧪 Test Runner</h1>
+    <p>Hypertrophy Tracker Unit Tests</p>
+  </header>
+
+  <div class="controls">
+    <button class="btn-primary" id="runBtn" onclick="runTests()">
+      ▶ Run All Tests
+    </button>
+    <button class="btn-secondary" onclick="clearResults()">
+      Clear
+    </button>
+    <button class="btn-secondary" onclick="window.open('./visual.html', '_blank')">
+      Visual Tests
+    </button>
+    <button class="btn-secondary" onclick="window.close()">
+      Close
+    </button>
+  </div>
+
+  <div id="stats" class="stats" style="display: none;">
+    <div class="stat-card">
+      <div class="stat-value info" id="totalStat">0</div>
+      <div class="stat-label">Total Tests</div>
+    </div>
+    <div class="stat-card" id="passedCard">
+      <div class="stat-value success" id="passedStat">0</div>
+      <div class="stat-label">Passed</div>
+    </div>
+    <div class="stat-card" id="failedCard">
+      <div class="stat-value error" id="failedStat">0</div>
+      <div class="stat-label">Failed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value warning" id="skippedStat">0</div>
+      <div class="stat-label">Skipped</div>
+    </div>
+    <div class="stat-card" id="timeCard">
+      <div class="stat-value info" id="timeStat">0ms</div>
+      <div class="stat-label">Duration</div>
+      <div class="progress-bar">
+        <div class="progress-fill success" id="progressBar" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="emptyState" class="empty-state">
+    <div class="empty-state-icon">🧪</div>
+    <p>Click "Run All Tests" to start testing</p>
+    <p class="badge">Test Framework v1.0</p>
+  </div>
+
+  <div id="suites" class="suites"></div>
+
+  <div id="consoleOutput" class="console-output" style="display: none;">
+    <div style="color: #71717a; margin-bottom: 8px; font-weight: 600;">Console Output:</div>
+    <div id="consoleContent"></div>
+  </div>
+
+  <footer>
+    <p>Tests run in browser environment with real application code</p>
+    <p style="margin-top: 8px; font-size: 0.75rem;">No user data is modified during testing</p>
+  </footer>
+</div>
+
+<!-- Application code -->
+<script src="../js/program-data.js"></script>
+<script src="../js/state.js"></script>
+<script src="../js/utils/formatters.js"></script>
+<script src="../js/utils/calculations.js"></script>
+<script src="../js/utils/coach.js"></script>
+
+<!-- Test Framework -->
+<script src="../js/test/test-framework.js"></script>
+
+<!-- Test Files -->
+<script src="../js/test/calculations.test.js"></script>
+<script src="../js/test/formatters.test.js"></script>
+<script src="../js/test/coach.test.js"></script>
+<script src="../js/test/state.test.js"></script>
+<script src="../js/test/validation.test.js"></script>
+
+<script>
+// Console capture
+const originalLog = console.log;
+const originalError = console.error;
+const originalWarn = console.warn;
+const consoleContent = document.getElementById('consoleContent');
+
+function addConsoleLine(text, type = '') {
+  const line = document.createElement('div');
+  line.className = `console-line ${type}`;
+  line.textContent = text;
+  consoleContent.appendChild(line);
+  document.getElementById('consoleOutput').style.display = 'block';
+}
+
+console.log = function(...args) {
+  originalLog.apply(console, args);
+  addConsoleLine(args.join(' '), 'info');
+};
+
+console.error = function(...args) {
+  originalError.apply(console, args);
+  addConsoleLine(args.join(' '), 'error');
+};
+
+console.warn = function(...args) {
+  originalWarn.apply(console, args);
+  addConsoleLine(args.join(' '), 'warn');
+};
+
+let isRunning = false;
+
+async function runTests() {
+  if (isRunning) return;
+  isRunning = true;
+  
+  const runBtn = document.getElementById('runBtn');
+  runBtn.disabled = true;
+  runBtn.innerHTML = '<span class="loading"></span> Running...';
+  
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('stats').style.display = 'grid';
+  document.getElementById('consoleContent').innerHTML = '';
+  document.getElementById('suites').innerHTML = '';
+  
+  try {
+    const results = await Test.runAll({ silent: true });
+    renderResults(results);
+  } catch (error) {
+    addConsoleLine('Test run failed: ' + error.message, 'error');
+    console.error(error);
+  }
+  
+  isRunning = false;
+  runBtn.disabled = false;
+  runBtn.innerHTML = '▶ Run All Tests';
+}
+
+function renderResults(results) {
+  // Update stats
+  document.getElementById('totalStat').textContent = results.total;
+  document.getElementById('passedStat').textContent = results.passed;
+  document.getElementById('failedStat').textContent = results.failed;
+  document.getElementById('skippedStat').textContent = results.skipped;
+  document.getElementById('timeStat').textContent = results.duration + 'ms';
+  
+  // Update progress bar
+  const passRate = results.total > 0 ? (results.passed / results.total) * 100 : 0;
+  const progressBar = document.getElementById('progressBar');
+  progressBar.style.width = passRate + '%';
+  progressBar.className = results.failed === 0 ? 'progress-fill success' : 'progress-fill error';
+  
+  // Update stat card styles
+  document.getElementById('passedCard').className = results.passed > 0 ? 'stat-card success' : 'stat-card';
+  document.getElementById('failedCard').className = results.failed > 0 ? 'stat-card error' : 'stat-card';
+  
+  // Render suites
+  const suitesContainer = document.getElementById('suites');
+  suitesContainer.innerHTML = '';
+  
+  for (const suite of results.suites) {
+    const suiteEl = document.createElement('div');
+    suiteEl.className = 'suite';
+    
+    const hasFailures = suite.tests.some(t => t.status === 'failed');
+    const allPassed = suite.passed > 0 && suite.failed === 0;
+    
+    suiteEl.innerHTML = `
+      <div class="suite-header" onclick="toggleSuite(this.parentElement)">
+        <div class="suite-name">
+          ${hasFailures ? '❌' : allPassed ? '✅' : '⚪'} 
+          ${suite.name}
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span class="suite-status ${suite.failed > 0 ? 'fail' : suite.passed > 0 ? 'pass' : 'pending'}">
+            ${suite.passed}/${suite.passed + suite.failed}
+          </span>
+          <span class="suite-toggle">▼</span>
+        </div>
+      </div>
+      <div class="suite-tests">
+        ${suite.tests.map(test => `
+          <div class="test ${test.status}">
+            <div class="test-icon">
+              ${test.status === 'passed' ? '✓' : test.status === 'failed' ? '✗' : '○'}
+            </div>
+            <div class="test-name">
+              ${test.name}
+              ${test.error ? `<div class="test-error">${escapeHtml(test.error)}</div>` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    
+    suitesContainer.appendChild(suiteEl);
+  }
+  
+  // Log summary
+  console.log(`\n📊 Test Results: ${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped (${results.duration}ms)`);
+  if (results.failed === 0) {
+    console.log('🎉 All tests passed!');
+  }
+}
+
+function toggleSuite(suiteEl) {
+  suiteEl.classList.toggle('expanded');
+}
+
+function clearResults() {
+  document.getElementById('emptyState').style.display = 'block';
+  document.getElementById('stats').style.display = 'none';
+  document.getElementById('suites').innerHTML = '';
+  document.getElementById('consoleContent').innerHTML = '';
+  document.getElementById('consoleOutput').style.display = 'none';
+  document.getElementById('passedCard').className = 'stat-card';
+  document.getElementById('failedCard').className = 'stat-card';
+  Test.clear();
+  
+  // Re-load test files to re-register tests
+  location.reload();
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Auto-run if URL has ?run param
+if (window.location.search.includes('run')) {
+  runTests();
+}
+</script>
+</body>
+</html>

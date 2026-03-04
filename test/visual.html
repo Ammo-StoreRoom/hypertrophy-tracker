@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hypertrophy Tracker - Visual Tests</title>
+<link rel="stylesheet" href="../css/styles.css">
+<style>
+.visual-test-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.visual-test-page h1 {
+  text-align: center;
+  margin-bottom: 10px;
+  font-size: 2rem;
+}
+.visual-test-page .subtitle {
+  text-align: center;
+  color: var(--dim);
+  margin-bottom: 30px;
+}
+.test-section {
+  margin-bottom: 40px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.test-section-header {
+  background: var(--card-bg);
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--card-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.test-section-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.test-section-content {
+  padding: 20px;
+  background: var(--bg);
+}
+.test-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.test-item {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.test-item-label {
+  font-size: 0.75rem;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.controls-bar {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 30px;
+  flex-wrap: wrap;
+}
+.btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: white;
+  transition: all 0.2s;
+}
+.btn:hover {
+  transform: translateY(-2px);
+  opacity: 0.9;
+}
+.btn-secondary {
+  background: var(--card-bg);
+  color: var(--white);
+  border: 1px solid var(--card-border);
+}
+.btn-secondary:hover {
+  background: var(--input-bg);
+}
+.stats-preview {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 768px) {
+  .stats-preview {
+    grid-template-columns: 1fr;
+  }
+}
+.color-swatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--input-bg);
+  border-radius: 8px;
+}
+.color-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+}
+.color-info {
+  flex: 1;
+}
+.color-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.color-value {
+  font-size: 0.75rem;
+  color: var(--dim);
+  font-family: var(--mono);
+}
+.component-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.modal-overlay-preview {
+  position: relative;
+  height: 200px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+}
+.toast {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: slideIn 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+}
+.toast.success {
+  border-color: var(--green);
+}
+.toast.error {
+  border-color: var(--accent);
+}
+.toast.info {
+  border-color: var(--blue);
+}
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes slideOut {
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+.toast.hiding {
+  animation: slideOut 0.3s ease forwards;
+}
+.input-test-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.validation-state {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.validation-item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.validation-item.valid {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+.validation-item.invalid {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+.badge-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.badge {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--input-bg);
+}
+.badge.green { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.badge.red { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+.badge.blue { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+.badge.purple { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+</style>
+</head>
+<body>
+<div class="visual-test-page">
+  <h1>🎨 Visual Regression Tests</h1>
+  <p class="subtitle">UI Component Reference & Visual Testing</p>
+  
+  <div class="controls-bar">
+    <button class="btn" onclick="toggleTheme()">🌓 Toggle Theme</button>
+    <button class="btn btn-secondary" onclick="showToast('Success toast message!', 'success')">Show Success Toast</button>
+    <button class="btn btn-secondary" onclick="showToast('Error toast message!', 'error')">Show Error Toast</button>
+    <button class="btn btn-secondary" onclick="window.open('./index.html', '_blank')">Test Runner</button>
+    <button class="btn btn-secondary" onclick="window.close()">Close</button>
+  </div>
+
+  <!-- Color Palette -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>🎨 Color Palette</h3>
+      <span class="badge">CSS Variables</span>
+    </div>
+    <div class="test-section-content">
+      <div class="test-grid">
+        <div class="test-item">
+          <div class="test-item-label">Primary Colors</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--accent);"></div>
+              <div class="color-info">
+                <div class="color-name">Accent (Red/Pink)</div>
+                <div class="color-value">--accent</div>
+              </div>
+            </div>
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--green);"></div>
+              <div class="color-info">
+                <div class="color-name">Success (Green)</div>
+                <div class="color-value">--green</div>
+              </div>
+            </div>
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--purple);"></div>
+              <div class="color-info">
+                <div class="color-name">Purple</div>
+                <div class="color-value">--purple</div>
+              </div>
+            </div>
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--blue);"></div>
+              <div class="color-info">
+                <div class="color-name">Blue</div>
+                <div class="color-value">--blue</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="test-item">
+          <div class="test-item-label">Neutral Colors</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--bg);"></div>
+              <div class="color-info">
+                <div class="color-name">Background</div>
+                <div class="color-value">--bg</div>
+              </div>
+            </div>
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--card-bg);"></div>
+              <div class="color-info">
+                <div class="color-name">Card Background</div>
+                <div class="color-value">--card-bg</div>
+              </div>
+            </div>
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--input-bg);"></div>
+              <div class="color-info">
+                <div class="color-name">Input Background</div>
+                <div class="color-value">--input-bg</div>
+              </div>
+            </div>
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--white); border: 1px solid var(--card-border);"></div>
+              <div class="color-info">
+                <div class="color-name">Text Primary</div>
+                <div class="color-value">--white</div>
+              </div>
+            </div>
+            <div class="color-swatch">
+              <div class="color-box" style="background: var(--dim);"></div>
+              <div class="color-info">
+                <div class="color-name">Text Muted</div>
+                <div class="color-value">--dim</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Buttons -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>🔘 Buttons</h3>
+      <span class="badge">Interactive</span>
+    </div>
+    <div class="test-section-content">
+      <div class="component-grid">
+        <div class="test-item">
+          <div class="test-item-label">Primary Button (.btn-primary)</div>
+          <button class="btn-primary">Primary Action</button>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">Ghost Button (.btn-ghost)</div>
+          <button class="btn-ghost">Secondary Action</button>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">Small Button (.btn-sm)</div>
+          <button class="btn-sm">Small</button>
+          <button class="btn-sm green" style="margin-left: 8px;">Green</button>
+          <button class="btn-sm red" style="margin-left: 8px;">Red</button>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">Button States</div>
+          <button class="btn-primary" disabled>Disabled</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Inputs -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>📝 Inputs</h3>
+      <span class="badge">Form Elements</span>
+    </div>
+    <div class="test-section-content">
+      <div class="test-grid">
+        <div class="test-item">
+          <div class="test-item-label">Weight Input</div>
+          <div class="input-test-row">
+            <input type="tel" class="set-input" value="135" style="width: 80px; text-align: center;">
+            <span style="color: var(--dim);">lbs</span>
+          </div>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">Reps Input</div>
+          <div class="input-test-row">
+            <input type="tel" class="set-input" value="10" style="width: 60px; text-align: center;">
+          </div>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">RIR Input</div>
+          <div class="input-test-row">
+            <input type="tel" class="set-input" value="2" style="width: 60px; text-align: center;">
+          </div>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">PIN Input</div>
+          <div class="input-test-row">
+            <input type="tel" class="set-input" value="01131998" style="width: 120px; text-align: center;" maxlength="8">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cards -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>🃏 Cards</h3>
+      <span class="badge">Containers</span>
+    </div>
+    <div class="test-section-content">
+      <div class="test-grid">
+        <div class="test-item">
+          <div class="test-item-label">Standard Card</div>
+          <div class="card" style="padding: 20px;">
+            <div style="font-weight: 600; margin-bottom: 8px;">Card Title</div>
+            <div style="color: var(--dim); font-size: 0.875rem;">Card content goes here with some description text.</div>
+          </div>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">Full Width Card</div>
+          <div class="card full-width" style="padding: 20px;">
+            <div style="font-weight: 600; margin-bottom: 8px;">Full Width Title</div>
+            <div style="color: var(--dim); font-size: 0.875rem;">This card spans the full width of its container.</div>
+          </div>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">Stat Card</div>
+          <div class="stat-card">
+            <div class="stat-val accent">42</div>
+            <div class="label">Workouts</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats Grid -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>📊 Stats Grid</h3>
+      <span class="badge">Dashboard</span>
+    </div>
+    <div class="test-section-content">
+      <div class="stats-preview">
+        <div class="stat-card">
+          <div class="stat-val accent">156</div>
+          <div class="label">Total Workouts</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val green">12</div>
+          <div class="label">Day Streak</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val purple">W3</div>
+          <div class="label">Meso Week</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Badges -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>🏷️ Badges</h3>
+      <span class="badge">Status Indicators</span>
+    </div>
+    <div class="test-section-content">
+      <div class="badge-grid">
+        <span class="badge">Default</span>
+        <span class="badge green">Success</span>
+        <span class="badge red">Error</span>
+        <span class="badge blue">Info</span>
+        <span class="badge purple">Purple</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Validation States -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>✅ Validation States</h3>
+      <span class="badge">Form Feedback</span>
+    </div>
+    <div class="test-section-content">
+      <div class="validation-state">
+        <div class="validation-item valid">✓ Valid Input</div>
+        <div class="validation-item invalid">✗ Invalid Input</div>
+        <div class="validation-item valid">✓ 8 digits</div>
+        <div class="validation-item invalid">✗ Required field</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading States -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>⏳ Loading States</h3>
+      <span class="badge">Feedback</span>
+    </div>
+    <div class="test-section-content">
+      <div class="component-grid">
+        <div class="test-item">
+          <div class="test-item-label">Spinner</div>
+          <div class="loading" style="width: 24px; height: 24px; border-width: 3px;"></div>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">Loading Card</div>
+          <div class="card" style="padding: 20px; text-align: center;">
+            <div class="loading" style="margin: 0 auto 12px; width: 32px; height: 32px; border-width: 3px;"></div>
+            <div style="color: var(--dim); font-size: 0.875rem;">Loading data...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty States -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>📭 Empty States</h3>
+      <span class="badge">No Data</span>
+    </div>
+    <div class="test-section-content">
+      <div class="test-grid">
+        <div class="test-item">
+          <div class="test-item-label">No Workouts</div>
+          <div class="card" style="padding: 40px; text-align: center;">
+            <div style="font-size: 3rem; margin-bottom: 12px;">💪</div>
+            <div style="font-weight: 600; margin-bottom: 8px;">No workouts yet</div>
+            <div style="color: var(--dim); font-size: 0.875rem;">Start your first workout to begin tracking</div>
+          </div>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">No History</div>
+          <div class="card" style="padding: 40px; text-align: center;">
+            <div style="font-size: 3rem; margin-bottom: 12px;">📊</div>
+            <div style="font-weight: 600; margin-bottom: 8px;">No history available</div>
+            <div style="color: var(--dim); font-size: 0.875rem;">Complete workouts to see your progress</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Responsive Test -->
+  <div class="test-section">
+    <div class="test-section-header">
+      <h3>📱 Responsive Breakpoints</h3>
+      <span class="badge">Mobile First</span>
+    </div>
+    <div class="test-section-content">
+      <div class="component-grid">
+        <div class="test-item">
+          <div class="test-item-label">Current Viewport</div>
+          <div style="font-family: var(--mono); font-size: 0.875rem; color: var(--accent);">
+            Width: <span id="viewportWidth">-</span>px
+          </div>
+          <div style="font-family: var(--mono); font-size: 0.875rem; color: var(--green); margin-top: 4px;">
+            Breakpoint: <span id="breakpoint">-</span>
+          </div>
+        </div>
+        <div class="test-item">
+          <div class="test-item-label">Breakpoints</div>
+          <div style="font-size: 0.875rem; color: var(--dim);">
+            <div>• Mobile: &lt; 640px</div>
+            <div>• Tablet: 640px - 900px</div>
+            <div>• Desktop: &gt; 900px</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align: center; padding: 40px; color: var(--dim); font-size: 0.875rem;">
+    <p>Visual tests are for reference only. Compare against screenshots for regression testing.</p>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// Viewport detection
+function updateViewportInfo() {
+  const width = window.innerWidth;
+  document.getElementById('viewportWidth').textContent = width;
+  
+  let breakpoint = 'Mobile';
+  if (width >= 900) breakpoint = 'Desktop';
+  else if (width >= 640) breakpoint = 'Tablet';
+  
+  document.getElementById('breakpoint').textContent = breakpoint;
+}
+
+window.addEventListener('resize', updateViewportInfo);
+updateViewportInfo();
+
+// Theme toggle
+function toggleTheme() {
+  const html = document.documentElement;
+  const currentTheme = html.getAttribute('data-theme');
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', newTheme);
+}
+
+// Toast notifications
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+  toast.innerHTML = `
+    <span style="font-size: 1.25rem;">${icon}</span>
+    <span>${message}</span>
+  `;
+  
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.classList.add('hiding');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+</script>
+</body>
+</html>

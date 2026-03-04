@@ -12,7 +12,13 @@ const Storage = (() => {
   const PIN_EMAIL_DOMAIN = 'hypertrophy.local';
   const PIN_PASSWORD_PREFIX = 'HTPINv1-';
 
-  function hashPin(pin) {
+  // Rate limiting constants
+  const RATE_LIMIT_KEY = 'ht-login-attempts';
+  const MAX_LOGIN_ATTEMPTS = 5;
+  const LOCKOUT_DURATION_MS = 60 * 1000; // 1 minute
+
+  // Legacy hash function (for backwards compatibility)
+  function hashPinLegacy(pin) {
     let hash = 0;
     for (let i = 0; i < pin.length; i++) {
       const c = pin.charCodeAt(i);
@@ -20,6 +26,165 @@ const Storage = (() => {
       hash |= 0;
     }
     return 'u' + Math.abs(hash).toString(36);
+  }
+
+  // Secure hash using SubtleCrypto (preferred) with legacy fallback
+  async function hashPinSecure(pin) {
+    // Try to use SubtleCrypto for better security
+    if (typeof crypto !== 'undefined' && crypto.subtle && typeof TextEncoder !== 'undefined') {
+      try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(pin);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return 's' + hashHex.substring(0, 20); // 's' prefix indicates secure hash
+      } catch (e) {
+        console.warn('SubtleCrypto failed, falling back to legacy hash:', e);
+      }
+    }
+    // Fallback to legacy hash
+    return hashPinLegacy(pin);
+  }
+
+  // Synchronous hash (for backwards compatibility in non-async contexts)
+  function hashPin(pin) {
+    return hashPinLegacy(pin);
+  }
+
+  // Check if a PIN is weak/unsafe
+  function checkPinStrength(pin) {
+    const issues = [];
+    
+    // Check for sequential numbers
+    const sequential = ['01234567', '12345678', '23456789', '98765432', '87654321', '76543210'];
+    if (sequential.some(seq => pin.includes(seq))) {
+      issues.push('This PIN contains sequential numbers which are easy to guess.');
+    }
+    
+    // Check for repeated digits
+    if (/^(\d)\1{7}$/.test(pin)) {
+      issues.push('This PIN uses the same digit repeated 8 times.');
+    }
+    
+    // Check for common patterns
+    const commonPatterns = ['11111111', '22222222', '33333333', '44444444', '55555555', 
+                           '66666666', '77777777', '88888888', '99999999', '00000000',
+                           '12345678', '87654321', '00000001', '99999999'];
+    if (commonPatterns.includes(pin)) {
+      issues.push('This is a commonly used PIN and is not secure.');
+    }
+    
+    // Check for date-like patterns (MMDDYYYY that are valid dates)
+    const month = parseInt(pin.substring(0, 2));
+    const day = parseInt(pin.substring(2, 4));
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      // It's a valid date - this is expected since we use birthdays
+      // but we could check if it's a very recent/young birthday
+      const year = parseInt(pin.substring(4, 8));
+      const currentYear = new Date().getFullYear();
+      if (year > currentYear - 13) {
+        issues.push('This appears to be a very recent birthday.');
+      }
+    }
+    
+    return {
+      isWeak: issues.length > 0,
+      issues,
+    };
+  }
+
+  // Rate limiting: Get current attempt data
+  function getRateLimitData() {
+    try {
+      const data = localStorage.getItem(RATE_LIMIT_KEY);
+      if (data) {
+        return JSON.parse(data);
+      }
+    } catch (e) {
+      console.warn('Failed to read rate limit data:', e);
+    }
+    return { attempts: 0, lockedUntil: 0, history: [] };
+  }
+
+  // Rate limiting: Save attempt data
+  function saveRateLimitData(data) {
+    try {
+      localStorage.setItem(RATE_LIMIT_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn('Failed to save rate limit data:', e);
+    }
+  }
+
+  // Rate limiting: Check if login is allowed
+  function checkRateLimit() {
+    const data = getRateLimitData();
+    const now = Date.now();
+    
+    // Check if currently locked out
+    if (data.lockedUntil > now) {
+      const remainingSeconds = Math.ceil((data.lockedUntil - now) / 1000);
+      return {
+        allowed: false,
+        remainingSeconds,
+        message: `Too many failed attempts. Please wait ${remainingSeconds} seconds before trying again.`,
+      };
+    }
+    
+    // Clear expired lockout
+    if (data.lockedUntil > 0 && data.lockedUntil <= now) {
+      data.attempts = 0;
+      data.lockedUntil = 0;
+      saveRateLimitData(data);
+    }
+    
+    return { allowed: true, attemptsRemaining: MAX_LOGIN_ATTEMPTS - data.attempts };
+  }
+
+  // Rate limiting: Record a failed attempt
+  function recordFailedAttempt() {
+    const data = getRateLimitData();
+    const now = Date.now();
+    
+    data.attempts = (data.attempts || 0) + 1;
+    
+    // Add to history
+    if (!data.history) data.history = [];
+    data.history.push({ timestamp: now });
+    // Keep only last 20 entries
+    if (data.history.length > 20) {
+      data.history = data.history.slice(-20);
+    }
+    
+    // Check if we should lock out
+    if (data.attempts >= MAX_LOGIN_ATTEMPTS) {
+      data.lockedUntil = now + LOCKOUT_DURATION_MS;
+    }
+    
+    saveRateLimitData(data);
+    
+    return {
+      attempts: data.attempts,
+      lockedOut: data.lockedUntil > now,
+      remainingSeconds: data.lockedUntil > now ? Math.ceil((data.lockedUntil - now) / 1000) : 0,
+    };
+  }
+
+  // Rate limiting: Record a successful attempt (clear failures)
+  function recordSuccessfulAttempt() {
+    saveRateLimitData({ attempts: 0, lockedUntil: 0, history: [] });
+  }
+
+  // Clear PIN from memory (security best practice)
+  function clearPinFromMemory() {
+    // The PIN is stored in userPin variable - we can't truly delete it
+    // but we can overwrite it and suggest garbage collection
+    if (userPin) {
+      // Overwrite with random data to help prevent memory inspection
+      const len = userPin.length;
+      userPin = Array(len).fill('0').join('');
+      userPin = null;
+    }
   }
 
   function initFirebase() {
@@ -147,8 +312,52 @@ const Storage = (() => {
     isLoggedIn() { return !!userPin; },
     getPin() { return userPin; },
 
+    // Security utilities
+    hashPin,
+    hashPinSecure,
+    checkPinStrength,
+    checkRateLimit,
+    getRateLimitData,
+    
+    // Clear sensitive data from memory
+    clearPinFromMemory,
+
     async login(pin) {
-      if (!/^\d{8}$/.test(pin)) return false;
+      // Check rate limiting first
+      const rateLimit = checkRateLimit();
+      if (!rateLimit.allowed) {
+        const error = new Error(rateLimit.message);
+        error.code = 'RATE_LIMITED';
+        error.remainingSeconds = rateLimit.remainingSeconds;
+        throw error;
+      }
+
+      // Validate PIN format
+      if (!/^\d{8}$/.test(pin)) {
+        recordFailedAttempt();
+        return false;
+      }
+
+      // Check PIN strength and warn (but still allow)
+      const strengthCheck = checkPinStrength(pin);
+      if (strengthCheck.isWeak) {
+        console.warn('Weak PIN detected:', strengthCheck.issues);
+        // Store warning for UI to display
+        try {
+          localStorage.setItem('ht-last-pin-warning', JSON.stringify({
+            pin: hashPin(pin),
+            issues: strengthCheck.issues,
+            timestamp: Date.now(),
+          }));
+        } catch {}
+      } else {
+        // Clear any previous warning
+        try {
+          localStorage.removeItem('ht-last-pin-warning');
+        } catch {}
+      }
+
+      // Proceed with login
       userPin = pin;
       authUid = null;
       try { localStorage.setItem('ht-pin', JSON.stringify(pin)); } catch {}
@@ -158,10 +367,38 @@ const Storage = (() => {
       try {
         await ensureAuthed();
         await migrateFirebaseIfNeeded();
+        // Record successful attempt (clears failures)
+        recordSuccessfulAttempt();
+        return true;
       } catch (e) {
-        console.warn('Auth/migration skipped, using legacy path:', e?.message || e);
+        // Record failed attempt for rate limiting (except for specific errors)
+        if (e?.message !== 'admin_password_required') {
+          recordFailedAttempt();
+        }
+        throw e;
       }
-      return true;
+    },
+
+    // Get any PIN strength warning from last login
+    getPinWarning() {
+      try {
+        const warning = localStorage.getItem('ht-last-pin-warning');
+        if (warning) {
+          const parsed = JSON.parse(warning);
+          // Only return if it's for the current PIN and recent (within 5 minutes)
+          if (userPin && parsed.pin === hashPin(userPin) && Date.now() - parsed.timestamp < 5 * 60 * 1000) {
+            return parsed.issues;
+          }
+        }
+      } catch {}
+      return null;
+    },
+
+    // Clear PIN warning
+    clearPinWarning() {
+      try {
+        localStorage.removeItem('ht-last-pin-warning');
+      } catch {}
     },
 
     async autoLogin() {
@@ -169,6 +406,13 @@ const Storage = (() => {
         const v = localStorage.getItem('ht-pin');
         const saved = v ? JSON.parse(v) : null;
         if (saved) {
+          // Check rate limiting even for auto-login
+          const rateLimit = checkRateLimit();
+          if (!rateLimit.allowed) {
+            console.warn('Auto-login blocked by rate limit');
+            return false;
+          }
+
           userPin = saved;
           authUid = null;
           saveKnownUser();
@@ -177,6 +421,7 @@ const Storage = (() => {
           try {
             await ensureAuthed();
             await migrateFirebaseIfNeeded();
+            recordSuccessfulAttempt();
           } catch (e) {
             console.warn('Auth skipped, using legacy path:', e?.message || e);
           }
@@ -189,9 +434,12 @@ const Storage = (() => {
     },
 
     logout() {
-      userPin = null;
+      // Clear PIN from memory before logging out
+      clearPinFromMemory();
       authUid = null;
       localStorage.removeItem('ht-pin');
+      // Clear PIN warning on logout
+      this.clearPinWarning();
       try { auth?.signOut(); } catch {}
     },
 
@@ -259,6 +507,20 @@ const Storage = (() => {
     unlisten() {
       syncCallbacks.forEach(({ ref }) => ref.off());
       syncCallbacks = [];
+    },
+
+    // Set data at a raw path (for backup module)
+    async setRaw(path, val) {
+      if (db && path) {
+        try {
+          await db.ref(path).set(val);
+          return true;
+        } catch(e) {
+          console.warn('Firebase raw write failed:', e);
+          return false;
+        }
+      }
+      return false;
     },
 
     getHash() { return authUid || (userPin ? hashPin(userPin) : null); },

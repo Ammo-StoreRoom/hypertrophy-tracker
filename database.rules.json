@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null && auth.token.email === 'ayman98a@gmail.com'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.email === 'ayman98a@gmail.com')",
+        ".write": "auth != null && (auth.uid === $uid || auth.token.email === 'ayman98a@gmail.com')"
+      }
+    },
+    "registry": {
+      ".read": "auth != null && auth.token.email === 'ayman98a@gmail.com'",
+      "$uid": {
+        ".write": "auth != null && (auth.uid === $uid || auth.token.email === 'ayman98a@gmail.com')"
+      }
+    },
+    "pinIndex": {
+      ".read": "auth != null && auth.token.email === 'ayman98a@gmail.com'",
+      "$pinHash": {
+        ".write": "auth != null"
+      }
+    }
+  }
+}
