@@ -204,25 +204,48 @@ function renderCoach() {
 
 /**
  * Ask the coach a question and display the answer
+ * Uses AI API if available, falls back to rule-based coach
  */
-function askCoach() {
+async function askCoach() {
   const input = document.getElementById('coach-question');
   const answerEl = document.getElementById('coach-answer');
   const question = input.value.trim();
   
   if (!question) return;
   
-  const context = {
-    state: Store.state,
-    history: Store.history,
-    bodyWeights: Store.bodyWeights,
-    recentWorkouts: Store.history.slice(0, 5)
-  };
-  
-  const answer = Coach.answerQuestion(question, context);
-  
+  // Show loading state
   answerEl.style.display = 'block';
-  answerEl.innerHTML = `<strong style="color:var(--accent)">Q:</strong> ${question}<br><br><strong style="color:var(--green)">A:</strong> ${answer}`;
+  answerEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;color:var(--dim)"><div class="spinner-small"></div>Thinking...</div>`;
+  
+  try {
+    // Try AI API first
+    const result = await AICoachAPI.getAdvice(question);
+    
+    const badge = result.fallback 
+      ? '<span style="font-size:11px;background:var(--muted);padding:2px 8px;border-radius:4px;margin-left:8px;">Offline Mode</span>'
+      : '<span style="font-size:11px;background:var(--green);padding:2px 8px;border-radius:4px;margin-left:8px;">AI Powered</span>';
+    
+    answerEl.innerHTML = `
+      <strong style="color:var(--accent)">Q:</strong> ${question}${badge}<br><br>
+      <strong style="color:var(--green)">A:</strong> ${result.advice}
+    `;
+    
+  } catch (error) {
+    // Fallback to local coach
+    const context = {
+      state: Store.state,
+      history: Store.history,
+      bodyWeights: Store.bodyWeights
+    };
+    const answer = Coach.answerQuestion(question, context);
+    
+    answerEl.innerHTML = `
+      <strong style="color:var(--accent)">Q:</strong> ${question}
+      <span style="font-size:11px;background:var(--muted);padding:2px 8px;border-radius:4px;margin-left:8px;">Offline Mode</span><br><br>
+      <strong style="color:var(--green)">A:</strong> ${answer}
+    `;
+  }
+  
   input.value = '';
 }
 

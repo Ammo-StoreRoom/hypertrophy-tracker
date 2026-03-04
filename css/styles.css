@@ -593,3 +593,8 @@ button:focus-visible,input:focus-visible,.btn:focus-visible,.btn-ghost:focus-vis
   .workout-progress{max-width:720px}
   .autocomplete-container{max-width:400px}
 }
+
+
+/* ========== AI COACH SPINNER ========== */
+.spinner-small{width:16px;height:16px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
