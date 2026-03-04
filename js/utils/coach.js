@@ -150,6 +150,14 @@ function getExerciseTip(exName, lastPerf) {
   return null;
 }
 
+// Expose globally for browser usage
+if (typeof window !== 'undefined') {
+  window.getRecoveryStatus = getRecoveryStatus;
+  window.getTodayHealth = getTodayHealth;
+  window.getCoachMessage = getCoachMessage;
+  window.getExerciseTip = getExerciseTip;
+}
+
 // Export for module usage
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { getRecoveryStatus, getTodayHealth, getCoachMessage, getExerciseTip };
