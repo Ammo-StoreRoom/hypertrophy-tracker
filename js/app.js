@@ -2034,8 +2034,10 @@ function renderAdmin() {
 
 function renderAdminUserCard(hash, user) {
   const exp = adminExpanded[hash];
-  const pin = user.pin || '????????';
-  const fmtPin = `${pin.slice(0,2)}/${pin.slice(2,4)}/${pin.slice(4)}`;
+  const pin = user.pin || '';
+  const fmtPin = /^\d{8}$/.test(pin) 
+    ? `${pin.slice(0,2)}/${pin.slice(2,4)}/${pin.slice(4)}`
+    : 'Unknown PIN';
   const isSelf = user.pin === Storage.getPin();
   const progLabel = ALL_PROGRAMS.find(([k]) => k === user.state?.program)?.[1] || 'Unknown';
   const phaseLabel = user.state?.phase === 'ppl'

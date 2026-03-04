@@ -284,41 +284,41 @@ const Storage = (() => {
 
     // Admin: build user list from all available sources
     async adminGetRegistry() {
-      const reg = {}; // keyed by UID
+      const byPin = {}; // keyed by PIN (the unique user identifier)
       const diag = { local: 0, registry: 0, usersScan: 0, errors: [] };
+      
+      // Helper to add/merge user data
+      const addUser = (pin, data, source) => {
+        if (!pin || !/^\d{8}$/.test(pin)) return;
+        if (!byPin[pin]) byPin[pin] = { pin, _sources: [] };
+        byPin[pin]._sources.push(source);
+        // Merge data, preferring newer data (keep existing values for critical fields)
+        Object.assign(byPin[pin], data);
+      };
+
       // 1. Local known PINs (device-local)
       try {
         const knownPins = JSON.parse(localStorage.getItem('ht-known-users') || '{}'); // pinHash -> pin
         diag.local = Object.keys(knownPins).length;
-
-        // If Firebase is available, resolve pinHash -> uid via pinIndex (admin-only read)
-        if (db) {
-          try {
-            const pinIndexSnap = await Promise.race([
-              db.ref('pinIndex').once('value'),
-              new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
-            ]);
-            const pinIndex = pinIndexSnap.val() || {};
-            for (const [pinHash, pin] of Object.entries(knownPins)) {
-              const uid = pinIndex[pinHash];
-              if (uid) reg[uid] = { ...(reg[uid] || {}), pin };
-            }
-          } catch (e) { diag.errors.push('pinIndex: ' + (e?.message || e)); }
+        for (const [, pin] of Object.entries(knownPins)) {
+          addUser(pin, { fromLocal: true }, 'local');
         }
       } catch {}
+
       if (db) {
-        // 2. Firebase registry (may fail if rules expired)
+        // 2. Firebase registry
         try {
           const snap = await Promise.race([
             db.ref('registry').once('value'),
             new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
           ]);
           const fbReg = snap.val() || {};
-          for (const [hash, data] of Object.entries(fbReg)) {
-            reg[hash] = { ...(reg[hash] || {}), ...data };
+          for (const [uid, data] of Object.entries(fbReg)) {
+            if (data?.pin) addUser(data.pin, { ...data, uid }, 'registry');
           }
           diag.registry = Object.keys(fbReg).length;
         } catch(e) { diag.errors.push('registry: ' + (e?.message || e)); }
+
         // 3. Scan Firebase users/ path directly for _meta entries
         try {
           const usersSnap = await Promise.race([
@@ -326,10 +326,9 @@ const Storage = (() => {
             new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
           ]);
           const allUsers = usersSnap.val() || {};
-          for (const [hash, userData] of Object.entries(allUsers)) {
-            if (!reg[hash]) reg[hash] = {};
-            if (userData?._meta) {
-              reg[hash] = { ...reg[hash], ...userData._meta };
+          for (const [uid, userData] of Object.entries(allUsers)) {
+            if (userData?._meta?.pin) {
+              addUser(userData._meta.pin, { ...userData._meta, uid }, 'users');
             }
           }
           diag.usersScan = Object.keys(allUsers).length;
@@ -337,6 +336,18 @@ const Storage = (() => {
       } else {
         diag.errors.push('Firebase not connected');
       }
+
+      // Convert to hash-keyed object for backwards compatibility with admin UI
+      // Use pinHash as the key to ensure true deduplication
+      const reg = {};
+      for (const [pin, data] of Object.entries(byPin)) {
+        const h = hashPin(pin);
+        // Only add if not already present (first source wins to avoid overwrites)
+        if (!reg[h]) {
+          reg[h] = { ...data, hash: h };
+        }
+      }
+      
       reg._diag = diag;
       return reg;
     },
