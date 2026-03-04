@@ -37,8 +37,14 @@ async function init() {
   setupPWA();
   setupOffline();
   setupPullToRefresh();
-  if (!await Storage.autoLogin()) { screen = 'login'; render(); return; }
-  try { await loadData(); } catch (e) { console.error('Init failed:', e); screen = 'login'; render(); }
+  try {
+    if (!await Storage.autoLogin()) { screen = 'login'; render(); return; }
+    await loadData();
+  } catch (e) {
+    console.error('Init failed:', e);
+    screen = 'login';
+    render();
+  }
 }
 
 async function loadData() {

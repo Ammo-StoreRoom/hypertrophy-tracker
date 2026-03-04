@@ -37,8 +37,9 @@ const Storage = (() => {
   }
 
   function getPath(key) {
-    // Secure path bound to authenticated UID
-    return authUid ? `users/${authUid}/${key}` : null;
+    // Prefer auth UID; fall back to legacy hash so app works without Firebase Auth enabled
+    if (!userPin) return null;
+    return authUid ? `users/${authUid}/${key}` : `users/${hashPin(userPin)}/${key}`;
   }
 
   function pinEmail(pin) {
@@ -106,7 +107,6 @@ const Storage = (() => {
       console.warn('Firebase migration skipped/failed:', e?.message || e);
     }
   }
-  }
 
   // Local storage helpers — keyed per user so multiple accounts stay isolated
   function lsKey(key) {
@@ -150,12 +150,17 @@ const Storage = (() => {
     async login(pin) {
       if (!/^\d{8}$/.test(pin)) return false;
       userPin = pin;
+      authUid = null;
       try { localStorage.setItem('ht-pin', JSON.stringify(pin)); } catch {}
       saveKnownUser();
       migrateOldData();
       initFirebase();
-      await ensureAuthed();
-      await migrateFirebaseIfNeeded();
+      try {
+        await ensureAuthed();
+        await migrateFirebaseIfNeeded();
+      } catch (e) {
+        console.warn('Auth/migration skipped, using legacy path:', e?.message || e);
+      }
       return true;
     },
 
@@ -165,14 +170,21 @@ const Storage = (() => {
         const saved = v ? JSON.parse(v) : null;
         if (saved) {
           userPin = saved;
+          authUid = null;
           saveKnownUser();
           migrateOldData();
           initFirebase();
-          await ensureAuthed();
-          await migrateFirebaseIfNeeded();
+          try {
+            await ensureAuthed();
+            await migrateFirebaseIfNeeded();
+          } catch (e) {
+            console.warn('Auth skipped, using legacy path:', e?.message || e);
+          }
           return true;
         }
-      } catch {}
+      } catch (e) {
+        console.warn('autoLogin failed:', e);
+      }
       return false;
     },
 
@@ -188,8 +200,7 @@ const Storage = (() => {
       const local = localGet(key, fallback);
 
       // Try to get from Firebase with timeout so we never hang on Loading
-      if (db && userPin) {
-        try { await ensureAuthed(); } catch(e) { console.warn('Auth not ready, using local:', e?.message || e); return local; }
+      if (db && userPin && getPath(key)) {
         const timeoutMs = 8000;
         try {
           const snap = await Promise.race([
@@ -220,8 +231,7 @@ const Storage = (() => {
       localSet(key, val);
 
       // Push to Firebase
-      if (db && userPin) {
-        try { await ensureAuthed(); } catch(e) { console.warn('Auth not ready, saved locally:', e?.message || e); return; }
+      if (db && userPin && getPath(key)) {
         try {
           await db.ref(getPath(key)).set(val);
         } catch(e) {
@@ -232,8 +242,7 @@ const Storage = (() => {
 
     // Listen for remote changes (real-time sync)
     listen(key, callback) {
-      if (db && userPin) {
-        ensureAuthed().catch(() => {});
+      if (db && userPin && getPath(key)) {
         const ref = db.ref(getPath(key));
         ref.on('value', snap => {
           const val = snap.val();
@@ -252,7 +261,7 @@ const Storage = (() => {
       syncCallbacks = [];
     },
 
-    getHash() { return authUid || null; },
+    getHash() { return authUid || (userPin ? hashPin(userPin) : null); },
     getUid() { return authUid || null; },
     setAdminPassword(pw) { try { localStorage.setItem('ht-admin-password', pw); } catch {} },
 
@@ -262,11 +271,14 @@ const Storage = (() => {
       saveKnownUser();
       const meta = { pin: userPin, ...info, lastActive: new Date().toISOString().split('T')[0] };
       if (db) {
-        try { await ensureAuthed(); } catch { return; }
-        try { await db.ref(`users/${authUid}/_meta`).update(meta); } catch {}
-        // pinIndex enables admin to resolve PIN -> UID
-        try { await db.ref(`pinIndex/${hashPin(userPin)}`).set(authUid); } catch {}
-        try { await db.ref(`registry/${authUid}`).update(meta); } catch {}
+        const pathId = authUid || hashPin(userPin);
+        try { await db.ref(`users/${pathId}/_meta`).update(meta); } catch {}
+        if (authUid) {
+          try { await db.ref(`pinIndex/${hashPin(userPin)}`).set(authUid); } catch {}
+          try { await db.ref(`registry/${authUid}`).update(meta); } catch {}
+        } else {
+          try { await db.ref(`registry/${pathId}`).update(meta); } catch {}
+        }
       }
     },
 
