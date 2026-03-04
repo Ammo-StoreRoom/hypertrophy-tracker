@@ -593,6 +593,19 @@ function haptic(pattern = 50) {
   if (navigator.vibrate) navigator.vibrate(pattern);
 }
 
+// ========== EXPORTS ==========
+// Expose functions needed by other modules
+window.startWorkout = startWorkout;
+window.copyLast = copyLast;
+window.swapExercise = swapExercise;
+window.finishWorkout = finishWorkout;
+window.undoLastWorkout = undoLastWorkout;
+window.checkFatigue = checkFatigue;
+window.startRest = startRest;
+window.stopRest = stopRest;
+window.showPRToast = showPRToast;
+window.haptic = haptic;
+
 // Boot the app when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
