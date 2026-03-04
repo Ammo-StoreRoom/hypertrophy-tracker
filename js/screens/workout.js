@@ -7,6 +7,14 @@
  * @returns {HTMLElement} Workout screen element
  */
 function renderWorkout() {
+  // Guard: if workout not initialized, redirect to home
+  if (!Store.workoutExercises || Store.workoutExercises.length === 0 || !Store.activeDay) {
+    console.warn('Workout screen accessed without initialized workout state');
+    Store.screen = 'home';
+    Router.render();
+    return el('div', null); // Return empty element while redirecting
+  }
+  
   const exercises = Store.workoutExercises;
   const elapsedSec = Store.workoutStart ? Math.floor((Date.now() - Store.workoutStart) / 1000) : 0;
   const elapsedMin = Math.floor(elapsedSec / 60);

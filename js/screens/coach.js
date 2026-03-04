@@ -11,6 +11,9 @@ function renderCoach() {
   const recovery = Coach.analyzeRecovery(Store.bodyWeights);
   const tips = Coach.generateTips(Store.state, Store.history, Store.bodyWeights);
   
+  const nextDay = Store.getNextDay();
+  const nextExercises = Store.getExercises(nextDay);
+  
   return el('div', { cls: 'screen' },
     renderModal(),
     
@@ -18,6 +21,23 @@ function renderCoach() {
     el('div', { cls: 'header' },
       el('h1', null, 'AI COACH'),
       el('div', { cls: 'sub' }, 'Personalized training insights')
+    ),
+    
+    // Start Workout Button
+    el('div', { cls: 'card full-width', css: 'margin-bottom:16px;' },
+      el('div', { css: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px' },
+        el('div', null,
+          el('div', { css: 'font-size:16px;font-weight:800;color:var(--white)' }, nextDay),
+          el('div', { css: 'font-size:12px;color:var(--dim);margin-top:2px' }, 
+            `${nextExercises.length} exercises • Target: ${Store.getRIR()}`
+          )
+        ),
+        el('button', { 
+          cls: 'btn', 
+          css: 'padding:12px 24px;',
+          onclick: () => startWorkout(nextDay)
+        }, 'START WORKOUT')
+      )
     ),
     
     // Recovery Score Card
