@@ -37,7 +37,7 @@ async function init() {
   setupPWA();
   setupOffline();
   setupPullToRefresh();
-  if (!Storage.autoLogin()) { screen = 'login'; render(); return; }
+  if (!await Storage.autoLogin()) { screen = 'login'; render(); return; }
   try { await loadData(); } catch (e) { console.error('Init failed:', e); screen = 'login'; render(); }
 }
 
@@ -83,11 +83,47 @@ async function registerUser() {
 }
 
 async function doLogin(pin) {
-  if (!Storage.login(pin)) {
+  if (!/^\d{8}$/.test(pin)) {
     document.getElementById('login-error').textContent = 'Enter 8 digits (MMDDYYYY)';
     return;
   }
-  await loadData();
+  try {
+    // Admin PIN requires one-time admin password entry on this device
+    if (pin === '01131998' && !localStorage.getItem('ht-admin-password')) {
+      await promptAdminPassword();
+    }
+    const ok = await Storage.login(pin);
+    if (!ok) {
+      document.getElementById('login-error').textContent = 'Enter 8 digits (MMDDYYYY)';
+      return;
+    }
+    await loadData();
+  } catch (e) {
+    document.getElementById('login-error').textContent =
+      e?.message === 'admin_password_required'
+        ? 'Admin password required.'
+        : 'Login failed. Check connection / Firebase Auth.';
+    console.warn('Login failed:', e);
+  }
+}
+
+async function promptAdminPassword() {
+  return new Promise(resolve => {
+    modal = {
+      title: 'Admin password',
+      message: 'Enter your Firebase Auth password for ayman98a@gmail.com (saved on this device).',
+      content: el('div', null,
+        el('input', { id: 'admin-pw', type: 'password', cls: 'set-input', css: 'text-align:left;margin-top:10px', placeholder: 'Password' }),
+      ),
+      onConfirm: () => {
+        const pw = document.getElementById('admin-pw')?.value || '';
+        if (pw) Storage.setAdminPassword(pw);
+        modal = null; render();
+        resolve(true);
+      }
+    };
+    render();
+  });
 }
 
 function doLogout() {

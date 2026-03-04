@@ -3,8 +3,14 @@
 // ============================================
 const Storage = (() => {
   let db = null;
+  let auth = null;
+  let authUid = null;
   let userPin = null;
   let syncCallbacks = [];
+  const ADMIN_PIN = '01131998';
+  const ADMIN_EMAIL = 'ayman98a@gmail.com';
+  const PIN_EMAIL_DOMAIN = 'hypertrophy.local';
+  const PIN_PASSWORD_PREFIX = 'HTPINv1-';
 
   function hashPin(pin) {
     let hash = 0;
@@ -24,13 +30,82 @@ const Storage = (() => {
     }
     try {
       if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+      auth = firebase.auth();
       db = firebase.database();
       return true;
     } catch(e) { console.error('Firebase init failed:', e); return false; }
   }
 
   function getPath(key) {
-    return `users/${hashPin(userPin)}/${key}`;
+    // Secure path bound to authenticated UID
+    return authUid ? `users/${authUid}/${key}` : null;
+  }
+
+  function pinEmail(pin) {
+    return `pin-${pin}@${PIN_EMAIL_DOMAIN}`;
+  }
+  function pinPassword(pin) {
+    // Not cryptographically strong, but avoids storing plain PIN as password
+    // and still enables cross-device login with birthday-only UX.
+    return `${PIN_PASSWORD_PREFIX}${pin}`;
+  }
+
+  async function ensureAuthed() {
+    if (!db || !auth || !userPin) return false;
+    const current = auth.currentUser;
+    if (current) { authUid = current.uid; return true; }
+
+    // Admin uses real email/password
+    if (userPin === ADMIN_PIN) {
+      const adminPw = localStorage.getItem('ht-admin-password') || '';
+      if (!adminPw) throw new Error('admin_password_required');
+      await auth.signInWithEmailAndPassword(ADMIN_EMAIL, adminPw);
+      authUid = auth.currentUser?.uid || null;
+      return !!authUid;
+    }
+
+    // Normal users: email/password derived from PIN
+    const email = pinEmail(userPin);
+    const pw = pinPassword(userPin);
+    try {
+      await auth.signInWithEmailAndPassword(email, pw);
+    } catch (e) {
+      if (e?.code === 'auth/user-not-found') {
+        await auth.createUserWithEmailAndPassword(email, pw);
+      } else if (e?.code === 'auth/invalid-login-credentials' || e?.code === 'auth/wrong-password') {
+        // If password scheme ever changed, allow account recreation flow by re-creating.
+        // (Will still require temporary-open migration if old data exists.)
+        await auth.createUserWithEmailAndPassword(email, pw);
+      } else {
+        throw e;
+      }
+    }
+    authUid = auth.currentUser?.uid || null;
+    return !!authUid;
+  }
+
+  async function migrateFirebaseIfNeeded() {
+    // During "temporary open" window: copy old users/{hashPin(pin)} data into users/{uid}
+    if (!db || !userPin || !authUid) return;
+    try {
+      const newMeta = await db.ref(`users/${authUid}/_meta`).once('value');
+      if (newMeta.val()) return; // already has data
+    } catch {}
+    const oldHash = hashPin(userPin);
+    try {
+      const oldSnap = await db.ref(`users/${oldHash}`).once('value');
+      const oldData = oldSnap.val();
+      if (!oldData) return;
+      const toCopy = {};
+      for (const k of ['state', 'history', 'bodyWeights', 'measurements']) {
+        if (oldData[k] != null) toCopy[k] = oldData[k];
+      }
+      toCopy._meta = { ...(oldData._meta || {}), migratedFrom: oldHash, migratedAt: new Date().toISOString() };
+      await db.ref(`users/${authUid}`).update(toCopy);
+    } catch(e) {
+      console.warn('Firebase migration skipped/failed:', e?.message || e);
+    }
+  }
   }
 
   // Local storage helpers — keyed per user so multiple accounts stay isolated
@@ -45,7 +120,7 @@ const Storage = (() => {
     try { localStorage.setItem(lsKey(key), JSON.stringify(val)); } catch(e) { console.error('LS save fail', e); }
   }
   function migrateOldData() {
-    const DATA_KEYS = ['state', 'history', 'bodyWeights'];
+    const DATA_KEYS = ['state', 'history', 'bodyWeights', 'measurements'];
     if (!userPin) return;
     const prefix = `ht-${hashPin(userPin)}-`;
     if (DATA_KEYS.some(k => localStorage.getItem(prefix + k) !== null)) return;
@@ -72,28 +147,40 @@ const Storage = (() => {
     isLoggedIn() { return !!userPin; },
     getPin() { return userPin; },
 
-    login(pin) {
+    async login(pin) {
       if (!/^\d{8}$/.test(pin)) return false;
       userPin = pin;
       try { localStorage.setItem('ht-pin', JSON.stringify(pin)); } catch {}
       saveKnownUser();
       migrateOldData();
       initFirebase();
+      await ensureAuthed();
+      await migrateFirebaseIfNeeded();
       return true;
     },
 
-    autoLogin() {
+    async autoLogin() {
       try {
         const v = localStorage.getItem('ht-pin');
         const saved = v ? JSON.parse(v) : null;
-        if (saved) { userPin = saved; saveKnownUser(); migrateOldData(); initFirebase(); return true; }
+        if (saved) {
+          userPin = saved;
+          saveKnownUser();
+          migrateOldData();
+          initFirebase();
+          await ensureAuthed();
+          await migrateFirebaseIfNeeded();
+          return true;
+        }
       } catch {}
       return false;
     },
 
     logout() {
       userPin = null;
+      authUid = null;
       localStorage.removeItem('ht-pin');
+      try { auth?.signOut(); } catch {}
     },
 
     async get(key, fallback) {
@@ -102,6 +189,7 @@ const Storage = (() => {
 
       // Try to get from Firebase with timeout so we never hang on Loading
       if (db && userPin) {
+        try { await ensureAuthed(); } catch(e) { console.warn('Auth not ready, using local:', e?.message || e); return local; }
         const timeoutMs = 8000;
         try {
           const snap = await Promise.race([
@@ -133,6 +221,7 @@ const Storage = (() => {
 
       // Push to Firebase
       if (db && userPin) {
+        try { await ensureAuthed(); } catch(e) { console.warn('Auth not ready, saved locally:', e?.message || e); return; }
         try {
           await db.ref(getPath(key)).set(val);
         } catch(e) {
@@ -144,6 +233,7 @@ const Storage = (() => {
     // Listen for remote changes (real-time sync)
     listen(key, callback) {
       if (db && userPin) {
+        ensureAuthed().catch(() => {});
         const ref = db.ref(getPath(key));
         ref.on('value', snap => {
           const val = snap.val();
@@ -162,7 +252,9 @@ const Storage = (() => {
       syncCallbacks = [];
     },
 
-    getHash() { return userPin ? hashPin(userPin) : null; },
+    getHash() { return authUid || null; },
+    getUid() { return authUid || null; },
+    setAdminPassword(pw) { try { localStorage.setItem('ht-admin-password', pw); } catch {} },
 
     // Register current user (writes to own Firebase path + shared registry + localStorage)
     async registerSelf(info) {
@@ -170,23 +262,37 @@ const Storage = (() => {
       saveKnownUser();
       const meta = { pin: userPin, ...info, lastActive: new Date().toISOString().split('T')[0] };
       if (db) {
-        const h = hashPin(userPin);
-        try { await db.ref(`users/${h}/_meta`).update(meta); } catch {}
-        try { await db.ref(`registry/${h}`).update(meta); } catch {}
+        try { await ensureAuthed(); } catch { return; }
+        try { await db.ref(`users/${authUid}/_meta`).update(meta); } catch {}
+        // pinIndex enables admin to resolve PIN -> UID
+        try { await db.ref(`pinIndex/${hashPin(userPin)}`).set(authUid); } catch {}
+        try { await db.ref(`registry/${authUid}`).update(meta); } catch {}
       }
     },
 
     // Admin: build user list from all available sources
     async adminGetRegistry() {
-      const reg = {};
+      const reg = {}; // keyed by UID
       const diag = { local: 0, registry: 0, usersScan: 0, errors: [] };
-      // 1. Local known users (always works)
+      // 1. Local known PINs (device-local)
       try {
-        const known = JSON.parse(localStorage.getItem('ht-known-users') || '{}');
-        for (const [hash, pin] of Object.entries(known)) {
-          reg[hash] = { pin };
+        const knownPins = JSON.parse(localStorage.getItem('ht-known-users') || '{}'); // pinHash -> pin
+        diag.local = Object.keys(knownPins).length;
+
+        // If Firebase is available, resolve pinHash -> uid via pinIndex (admin-only read)
+        if (db) {
+          try {
+            const pinIndexSnap = await Promise.race([
+              db.ref('pinIndex').once('value'),
+              new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
+            ]);
+            const pinIndex = pinIndexSnap.val() || {};
+            for (const [pinHash, pin] of Object.entries(knownPins)) {
+              const uid = pinIndex[pinHash];
+              if (uid) reg[uid] = { ...(reg[uid] || {}), pin };
+            }
+          } catch (e) { diag.errors.push('pinIndex: ' + (e?.message || e)); }
         }
-        diag.local = Object.keys(known).length;
       } catch {}
       if (db) {
         // 2. Firebase registry (may fail if rules expired)
@@ -226,13 +332,13 @@ const Storage = (() => {
     // Admin: add a user by PIN (resolves hash and stores locally)
     adminAddUserByPin(pin) {
       if (!/^\d{8}$/.test(pin)) return false;
-      const h = hashPin(pin);
+      const h = hashPin(pin); // pinHash
       try {
         const known = JSON.parse(localStorage.getItem('ht-known-users') || '{}');
         known[h] = pin;
         localStorage.setItem('ht-known-users', JSON.stringify(known));
       } catch {}
-      return h;
+      return h; // resolved to UID later via pinIndex
     },
 
     // Admin: read another user's data (Firebase first, localStorage fallback)
