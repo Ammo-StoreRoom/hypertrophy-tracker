@@ -19,9 +19,14 @@ const AICoachAPI = {
    */
   async getAdvice(question) {
     try {
+      console.log('Calling AI Coach API:', API_BASE);
+      
       const response = await fetch(`${API_BASE}/coach`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify({
           workouts: Store.history.slice(0, 15),
           bodyWeights: Store.bodyWeights.slice(-21),
@@ -31,11 +36,17 @@ const AICoachAPI = {
         })
       });
 
+      console.log('API Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const errorText = await response.text();
+        console.error('API Error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('API Success:', data);
+      
       return {
         advice: data.advice,
         tokensUsed: data.tokensUsed || 0,

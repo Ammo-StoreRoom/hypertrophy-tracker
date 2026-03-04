@@ -19,20 +19,10 @@ const app = express();
 app.use(express.json());
 
 // CORS - Allow your GitHub Pages domain
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['https://ammo-storeroom.github.io', 'http://localhost:8080'];
-
+// CORS - Allow all origins (GitHub Pages requires this)
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      console.log('Blocked request from:', origin);
-      return callback(new Error('CORS policy violation'), false);
-    }
-    return callback(null, true);
-  },
-  methods: ['POST', 'GET'],
+  origin: '*',
+  methods: ['POST', 'GET', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
