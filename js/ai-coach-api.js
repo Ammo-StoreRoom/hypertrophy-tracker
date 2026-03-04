@@ -1,12 +1,15 @@
 /**
  * AI Coach API Client
- * Connects to Firebase Functions for advanced AI coaching
+ * Connects to VPS proxy server for Kimi API
  */
 
+// UPDATE THIS with your VPS IP or domain
+const API_BASE = 'http://YOUR_VPS_IP:3000';  // Change to your VPS IP
+
 const AICoachAPI = {
-  // Check if Firebase Functions is available
+  // Check if API is available
   isAvailable() {
-    return typeof firebase !== 'undefined' && firebase.functions;
+    return true; // Always try the VPS endpoint
   },
 
   /**
@@ -15,31 +18,32 @@ const AICoachAPI = {
    * @returns {Promise<{advice: string, tokensUsed: number, fallback: boolean}>}
    */
   async getAdvice(question) {
-    if (!this.isAvailable()) {
-      console.warn('Firebase Functions not available');
-      return this.getLocalAdvice(question);
-    }
-
     try {
-      const getCoachingAdvice = firebase.functions().httpsCallable('getCoachingAdvice');
-      
-      const result = await getCoachingAdvice({
-        workouts: Store.history.slice(0, 15),
-        bodyWeights: Store.bodyWeights.slice(-21),
-        measurements: Store.measurements.slice(-10),
-        question: question,
-        program: Store.state?.program || 'standard'
+      const response = await fetch(`${API_BASE}/coach`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workouts: Store.history.slice(0, 15),
+          bodyWeights: Store.bodyWeights.slice(-21),
+          measurements: Store.measurements.slice(-10),
+          question: question,
+          program: Store.state?.program || 'standard'
+        })
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
       return {
-        advice: result.data.advice,
-        tokensUsed: result.data.tokensUsed,
-        fallback: result.data.fallback || false
+        advice: data.advice,
+        tokensUsed: data.tokensUsed || 0,
+        fallback: data.fallback || false
       };
 
     } catch (error) {
       console.error('AI Coach API error:', error);
-      // Fallback to local coach
       return this.getLocalAdvice(question);
     }
   },
@@ -107,14 +111,10 @@ const AICoachAPI = {
    * @returns {Promise<{status: string}>}
    */
   async checkHealth() {
-    if (!this.isAvailable()) {
-      return { status: 'unavailable', kimi: 'not_configured' };
-    }
-
     try {
-      const healthCheck = firebase.functions().httpsCallable('healthCheck');
-      const result = await healthCheck({});
-      return result.data;
+      const response = await fetch(`${API_BASE}/health`);
+      const data = await response.json();
+      return data;
     } catch (error) {
       return { status: 'error', error: error.message };
     }
