@@ -3,8 +3,8 @@
  * Connects to VPS proxy server for Kimi API
  */
 
-// UPDATE THIS with your VPS IP or domain
-const API_BASE = 'http://YOUR_VPS_IP:3000';  // Change to your VPS IP
+// VPS Proxy Server Endpoint
+const API_BASE = 'http://107.20.186.71:3000';
 
 const AICoachAPI = {
   // Check if API is available
