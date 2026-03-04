@@ -6,6 +6,7 @@
 let state, history, screen, activeDay, inputs, workoutStart;
 let restTimer = 0, restEndTime = null, restInterval = null;
 let modal = null, expandedEntries = {};
+let loginPinValue = '';
 let bodyWeights = [];
 let measurements = [];
 let workoutExercises = [];
@@ -89,27 +90,57 @@ async function registerUser() {
 }
 
 async function doLogin(pin) {
-  if (!/^\d{8}$/.test(pin)) {
+  const trimmed = String(pin ?? '').trim();
+  if (!/^\d{8}$/.test(trimmed)) {
     document.getElementById('login-error').textContent = 'Enter 8 digits (MMDDYYYY)';
     return;
   }
   try {
-    // Admin PIN requires one-time admin password entry on this device
-    if (pin === '01131998' && !localStorage.getItem('ht-admin-password')) {
-      await promptAdminPassword();
+    // Clear stale admin password if logging in with non-admin PIN
+    if (trimmed !== ADMIN_PIN) {
+      localStorage.removeItem('ht-admin-password');
     }
-    const ok = await Storage.login(pin);
+    // Admin PIN must have Firebase password set on this device (prompt before login)
+    else if (trimmed === ADMIN_PIN) {
+      if (!localStorage.getItem('ht-admin-password')) {
+        const didSet = await promptAdminPassword();
+        if (!didSet) return;
+      }
+    }
+    const ok = await Storage.login(trimmed);
     if (!ok) {
       document.getElementById('login-error').textContent = 'Enter 8 digits (MMDDYYYY)';
       return;
     }
     await loadData();
+    modal = null; // clear any stray modal after successful login
   } catch (e) {
-    document.getElementById('login-error').textContent =
-      e?.message === 'admin_password_required'
-        ? 'Admin password required.'
-        : 'Login failed. Check connection / Firebase Auth.';
-    console.warn('Login failed:', e);
+    if (e?.message === 'admin_password_required') {
+      // Show inline admin password UI by re-rendering with the admin PIN visible
+      loginPinValue = trimmed;
+      modal = {
+        title: 'Admin password required',
+        message: 'Enter your Firebase Auth password for ayman98a@gmail.com',
+        confirmLabel: 'Set password',
+        content: el('div', null,
+          el('input', { id: 'admin-pw-error', type: 'password', cls: 'set-input', css: 'text-align:left;margin-top:10px', placeholder: 'Password', autocomplete: 'current-password' }),
+        ),
+        onConfirm: () => {
+          const pw = document.getElementById('admin-pw-error')?.value || '';
+          if (pw) {
+            Storage.setAdminPassword(pw);
+            modal = null;
+            // Retry login with the password now set
+            doLogin(trimmed);
+          }
+        },
+        onCancel: () => { modal = null; render(); },
+      };
+      render();
+    } else {
+      document.getElementById('login-error').textContent = 'Login failed. Check connection / Firebase Auth.';
+      console.warn('Login failed:', e);
+    }
   }
 }
 
@@ -118,22 +149,26 @@ async function promptAdminPassword() {
     modal = {
       title: 'Admin password',
       message: 'Enter your Firebase Auth password for ayman98a@gmail.com (saved on this device).',
+      confirmLabel: 'Set password',
       content: el('div', null,
-        el('input', { id: 'admin-pw', type: 'password', cls: 'set-input', css: 'text-align:left;margin-top:10px', placeholder: 'Password' }),
+        el('input', { id: 'admin-pw', type: 'password', cls: 'set-input', css: 'text-align:left;margin-top:10px', placeholder: 'Password', autocomplete: 'current-password' }),
       ),
       onConfirm: () => {
         const pw = document.getElementById('admin-pw')?.value || '';
         if (pw) Storage.setAdminPassword(pw);
         modal = null; render();
         resolve(true);
-      }
+      },
+      onCancel: () => resolve(false),
     };
     render();
+    requestAnimationFrame(() => { render(); });
   });
 }
 
 function doLogout() {
   Storage.unlisten(); Storage.logout();
+  loginPinValue = '';
   screen = 'login'; render();
 }
 
@@ -809,14 +844,15 @@ function el(tag, attrs, ...kids) {
 
 function renderModal() {
   if (!modal) return null;
-  return el('div', { cls: 'modal-overlay', onclick: () => { modal = null; render(); } },
+  const close = () => { modal?.onCancel?.(); modal = null; render(); };
+  return el('div', { cls: 'modal-overlay', onclick: close },
     el('div', { cls: 'modal', onclick: e => e.stopPropagation() },
       el('h3', null, modal.title),
       modal.message ? el('p', null, modal.message) : null,
       modal.content || null,
       modal.onConfirm ? el('div', { cls: 'modal-btns' },
-        el('button', { cls: 'btn-ghost muted', onclick: () => { modal = null; render(); } }, 'Never mind'),
-        el('button', { cls: 'btn btn-red', onclick: modal.onConfirm }, 'Yes, do it'),
+        el('button', { cls: 'btn-ghost muted', onclick: close }, 'Never mind'),
+        el('button', { cls: 'btn', onclick: () => { modal?.onConfirm?.(); modal = null; render(); } }, modal.confirmLabel || 'Confirm'),
       ) : null,
     ),
   );
@@ -850,7 +886,13 @@ function renderNav() {
 
 // ========== SCREENS ==========
 function renderLogin() {
-  return el('div', { cls: 'screen login-screen' },
+  const pinVal = (document.getElementById('pin-input')?.value ?? loginPinValue).toString().trim();
+  if (pinVal.length <= 8) loginPinValue = pinVal;
+  // Only show admin block when PIN is exactly admin PIN (never for other users)
+  const isAdminPin = pinVal === ADMIN_PIN;
+  const hasAdminPw = !!localStorage.getItem('ht-admin-password');
+
+  return el('div', { cls: 'screen login-screen' }, renderModal(),
     el('div', { cls: 'login-box' },
       el('div', { css: 'text-align:center;margin-bottom:32px' },
         el('h1', { css: 'font-size:28px;font-weight:900;color:var(--white);margin-bottom:4px' }, 'HYPERTROPHY'),
@@ -858,12 +900,28 @@ function renderLogin() {
       ),
       el('div', { css: 'margin-bottom:20px' },
         el('label', { cls: 'label', css: 'display:block;margin-bottom:8px' }, 'Enter your birthday to sync'),
-        el('input', { type: 'tel', id: 'pin-input', cls: 'pin-input', placeholder: 'MMDDYYYY', maxlength: '8', inputmode: 'numeric',
-          onkeyup: e => { if (e.key === 'Enter') doLogin(e.target.value); }
+        el('input', { type: 'tel', id: 'pin-input', cls: 'pin-input', placeholder: 'MMDDYYYY', maxlength: '8', inputmode: 'numeric', value: loginPinValue,
+          onkeyup: e => { if (e.key === 'Enter') doLogin(e.target.value); else { loginPinValue = e.target.value; render(); } },
+          oninput: e => { loginPinValue = e.target.value; render(); },
         }),
         el('div', { id: 'login-error', css: 'color:#ef4444;font-size:12px;margin-top:6px;min-height:18px' }),
       ),
-      el('button', { cls: 'btn', onclick: () => doLogin(document.getElementById('pin-input').value) }, 'START TRACKING'),
+      el('button', { cls: 'btn', onclick: () => doLogin(document.getElementById('pin-input')?.value ?? loginPinValue) }, 'START TRACKING'),
+
+      isAdminPin ? el('div', { cls: 'card', css: 'margin-top:20px;padding:14px;border-color:var(--accent)' },
+        el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Admin: Firebase password'),
+        el('p', { css: 'font-size:11px;color:var(--dim);margin-bottom:10px' }, 'For PIN 01/13/1998, set the password for ayman98a@gmail.com (saved on this device).'),
+        el('input', { type: 'password', id: 'admin-pw-inline', cls: 'set-input', placeholder: 'Password', css: 'text-align:left;margin-bottom:8px' }),
+        el('div', { css: 'display:flex;gap:8px' },
+          el('button', { cls: 'btn-sm green', onclick: () => {
+            const pw = document.getElementById('admin-pw-inline')?.value || '';
+            if (pw) { Storage.setAdminPassword(pw); document.getElementById('login-error').textContent = 'Password saved. Click START TRACKING to continue.'; }
+            render();
+          }}, 'Save password'),
+          hasAdminPw ? el('button', { cls: 'btn-sm muted', onclick: () => { localStorage.removeItem('ht-admin-password'); render(); } }, 'Clear') : null,
+        ),
+      ) : null,
+
       el('div', { css: 'text-align:center;margin-top:16px;font-size:11px;color:var(--dim)' }, 'Your birthday is your sync key across devices'),
     ),
   );
