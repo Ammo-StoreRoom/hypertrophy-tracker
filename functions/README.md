@@ -21,14 +21,25 @@ npm install
 3. Generate an API key
 4. Copy the key (starts with `sk-`)
 
-## 3. Configure API Key (CRITICAL - Never commit this!)
+## 3. Set Environment Variable
+
+### Option A: Firebase Console (Easiest)
+
+1. Go to https://console.firebase.google.com
+2. Select your project
+3. Go to **Build** → **Functions**
+4. Click **Environment Variables** tab
+5. Click **Add Variable**
+   - Name: `KIMI_API_KEY`
+   - Value: `sk-your-actual-key-here`
+6. Click **Save**
+
+### Option B: CLI (if available)
 
 ```bash
-# From the project root directory
-firebase functions:config:set kimi.key="YOUR_KIMI_API_KEY_HERE"
+firebase functions:secrets:set KIMI_API_KEY
+# Enter your key when prompted
 ```
-
-**NEVER** put the API key in your code or GitHub!
 
 ## 4. Deploy Functions
 
@@ -39,10 +50,11 @@ firebase deploy --only functions
 ## 5. Verify Deployment
 
 ```bash
-# Check function health
-curl -X POST https://YOUR_REGION-YOUR_PROJECT_ID.cloudfunctions.net/healthCheck \
-  -H "Content-Type: application/json" \
-  -d '{}'
+# Check function health in Firebase Console:
+# https://console.firebase.google.com/project/_/functions
+
+# Or check the logs:
+firebase functions:log
 ```
 
 ## Functions Available
@@ -82,15 +94,15 @@ Cost per question: ¥0.01-0.03 (~$0.0015-0.004 USD)
 
 ## Security
 
-- API key stored in Firebase Functions config (server-side only)
+- API key stored in Firebase Environment Variables (server-side only)
 - Functions require Firebase Authentication
 - Rate limiting per user
 - No API key in client-side code
 
 ## Troubleshooting
 
-### "Kimi API key not configured"
-Run: `firebase functions:config:set kimi.key="YOUR_KEY"`
+### "KIMI_API_KEY environment variable not set"
+Go to Firebase Console → Functions → Environment Variables and add `KIMI_API_KEY`
 
 ### "Permission denied"
 Make sure you're logged in: `firebase login`
@@ -98,15 +110,12 @@ Make sure you're logged in: `firebase login`
 ### Functions not deploying
 Check Node version: `node -v` (should be 18+)
 
-## Local Testing (Optional)
+### Environment variable not found after setting
+Redeploy the functions after setting environment variables.
 
-```bash
-# Emulate functions locally
-firebase emulators:start --only functions
+## Updating the API Key
 
-# In another terminal, test:
-curl http://localhost:5001/YOUR_PROJECT/us-central1/getCoachingAdvice \
-  -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"data":{"question":"Should I deload?","workouts":[]}}'
-```
+1. Go to Firebase Console → Functions → Environment Variables
+2. Delete the old `KIMI_API_KEY`
+3. Add new one with updated value
+4. Redeploy functions: `firebase deploy --only functions`

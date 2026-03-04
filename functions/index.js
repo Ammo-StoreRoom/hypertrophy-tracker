@@ -1,6 +1,9 @@
 /**
  * Firebase Functions for Hypertrophy Tracker
  * Provides secure AI coaching via Kimi API
+ * 
+ * Environment Variables (set via Firebase Console):
+ * - KIMI_API_KEY: Your Kimi API key
  */
 
 const functions = require('firebase-functions');
@@ -10,12 +13,12 @@ const OpenAI = require('openai');
 // Initialize Firebase Admin
 admin.initializeApp();
 
-// Initialize Kimi client (OpenAI-compatible API)
-// API key is stored in Firebase Functions config, NOT in code
+// Initialize Kimi client using environment variables
+// Set this in Firebase Console: Functions > Environment Variables
 const getKimiClient = () => {
-  const apiKey = functions.config().kimi?.key;
+  const apiKey = process.env.KIMI_API_KEY;
   if (!apiKey) {
-    throw new Error('Kimi API key not configured. Run: firebase functions:config:set kimi.key="YOUR_KEY"');
+    throw new Error('KIMI_API_KEY environment variable not set. Add it in Firebase Console > Functions > Environment Variables');
   }
   
   return new OpenAI({

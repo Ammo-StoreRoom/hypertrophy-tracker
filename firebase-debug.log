@@ -1,0 +1,37 @@
+[debug] [2026-03-04T15:43:29.485Z] ----------------------------------------------------------------------
+[debug] [2026-03-04T15:43:29.487Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\ayman\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js login
+[debug] [2026-03-04T15:43:29.488Z] CLI Version:   15.8.0
+[debug] [2026-03-04T15:43:29.488Z] Platform:      win32
+[debug] [2026-03-04T15:43:29.488Z] Node Version:  v24.11.1
+[debug] [2026-03-04T15:43:29.488Z] Time:          Wed Mar 04 2026 10:43:29 GMT-0500 (Eastern Standard Time)
+[debug] [2026-03-04T15:43:29.488Z] ----------------------------------------------------------------------
+[debug] 
+[info] Already logged in as ayman98a@attia.tech
+[debug] [2026-03-04T15:43:42.480Z] ----------------------------------------------------------------------
+[debug] [2026-03-04T15:43:42.483Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\ayman\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js functions:config:set kimi.key=sk-kimi-iGdDr7j0wJClcu46Umgkkp9IUHEnYZ10c6snBxNq1qkjRhjf82Z4uoe0WmBTolX6
+[debug] [2026-03-04T15:43:42.483Z] CLI Version:   15.8.0
+[debug] [2026-03-04T15:43:42.483Z] Platform:      win32
+[debug] [2026-03-04T15:43:42.483Z] Node Version:  v24.11.1
+[debug] [2026-03-04T15:43:42.484Z] Time:          Wed Mar 04 2026 10:43:42 GMT-0500 (Eastern Standard Time)
+[debug] [2026-03-04T15:43:42.484Z] ----------------------------------------------------------------------
+[debug] 
+[error] 
+[error] Error: DEPRECATION NOTICE: Action required before March 2026
+
+The functions.config() API and the Cloud Runtime Config service are deprecated. Deploys that rely on functions.config() will fail once Runtime Config shuts down in March 2026.
+
+The legacy functions:config:* CLI commands are deprecated and will be removed before March 2026.
+
+Learn how to migrate from functions.config() to the params package:
+
+https://firebase.google.com/docs/functions/config-env#migrate-config
+
+To convert existing functions.config() values to params, try the interactive migration command:
+
+  firebase functions:config:export
+
+
+To run this legacy command temporarily, run the following command and try again:
+
+  firebase experiments:enable legacyRuntimeConfigCommands
+
