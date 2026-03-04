@@ -564,6 +564,28 @@ const Test = {
       isOnline: true,
       theme: 'dark'
     };
+  },
+
+  /**
+   * Get current test statistics
+   * @returns {Object} Statistics object
+   */
+  getStats() {
+    let total = 0;
+    let passed = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (const suite of this.suites) {
+      for (const test of suite.tests) {
+        total++;
+        if (test.status === 'passed') passed++;
+        else if (test.status === 'failed') failed++;
+        else if (test.status === 'skipped') skipped++;
+      }
+    }
+
+    return { total, passed, failed, skipped };
   }
 };
 
