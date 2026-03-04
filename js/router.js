@@ -137,6 +137,7 @@ const NAV_ITEMS = [
   ['home', '🏠', 'Home'],
   ['history', '📋', 'History'],
   ['progress', '📈', 'Progress'],
+  ['coach', '🎯', 'Coach'],
   ['templates', '📑', 'Templates'],
   ['health', '❤️', 'Health'],
   ['settings', '⚙️', 'Settings']

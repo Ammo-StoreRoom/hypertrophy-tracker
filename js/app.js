@@ -28,6 +28,7 @@ async function init() {
     workout: renderWorkout,
     history: renderHistory,
     progress: renderProgress,
+    coach: renderCoach,
     health: renderHealth,
     settings: renderSettings,
     templates: renderTemplates,
