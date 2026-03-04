@@ -886,12 +886,6 @@ function renderNav() {
 
 // ========== SCREENS ==========
 function renderLogin() {
-  const pinVal = (document.getElementById('pin-input')?.value ?? loginPinValue).toString().trim();
-  if (pinVal.length <= 8) loginPinValue = pinVal;
-  // Only show admin block when PIN is exactly admin PIN (never for other users)
-  const isAdminPin = pinVal === ADMIN_PIN;
-  const hasAdminPw = !!localStorage.getItem('ht-admin-password');
-
   return el('div', { cls: 'screen login-screen' }, renderModal(),
     el('div', { cls: 'login-box' },
       el('div', { css: 'text-align:center;margin-bottom:32px' },
@@ -901,27 +895,12 @@ function renderLogin() {
       el('div', { css: 'margin-bottom:20px' },
         el('label', { cls: 'label', css: 'display:block;margin-bottom:8px' }, 'Enter your birthday to sync'),
         el('input', { type: 'tel', id: 'pin-input', cls: 'pin-input', placeholder: 'MMDDYYYY', maxlength: '8', inputmode: 'numeric', value: loginPinValue,
-          onkeyup: e => { if (e.key === 'Enter') doLogin(e.target.value); else { loginPinValue = e.target.value; render(); } },
-          oninput: e => { loginPinValue = e.target.value; render(); },
+          onkeyup: e => { if (e.key === 'Enter') doLogin(e.target.value); },
+          oninput: e => { loginPinValue = e.target.value; },
         }),
         el('div', { id: 'login-error', css: 'color:#ef4444;font-size:12px;margin-top:6px;min-height:18px' }),
       ),
       el('button', { cls: 'btn', onclick: () => doLogin(document.getElementById('pin-input')?.value ?? loginPinValue) }, 'START TRACKING'),
-
-      isAdminPin ? el('div', { cls: 'card', css: 'margin-top:20px;padding:14px;border-color:var(--accent)' },
-        el('div', { cls: 'label', css: 'margin-bottom:8px' }, 'Admin: Firebase password'),
-        el('p', { css: 'font-size:11px;color:var(--dim);margin-bottom:10px' }, 'For PIN 01/13/1998, set the password for ayman98a@gmail.com (saved on this device).'),
-        el('input', { type: 'password', id: 'admin-pw-inline', cls: 'set-input', placeholder: 'Password', css: 'text-align:left;margin-bottom:8px' }),
-        el('div', { css: 'display:flex;gap:8px' },
-          el('button', { cls: 'btn-sm green', onclick: () => {
-            const pw = document.getElementById('admin-pw-inline')?.value || '';
-            if (pw) { Storage.setAdminPassword(pw); document.getElementById('login-error').textContent = 'Password saved. Click START TRACKING to continue.'; }
-            render();
-          }}, 'Save password'),
-          hasAdminPw ? el('button', { cls: 'btn-sm muted', onclick: () => { localStorage.removeItem('ht-admin-password'); render(); } }, 'Clear') : null,
-        ),
-      ) : null,
-
       el('div', { css: 'text-align:center;margin-top:16px;font-size:11px;color:var(--dim)' }, 'Your birthday is your sync key across devices'),
     ),
   );
